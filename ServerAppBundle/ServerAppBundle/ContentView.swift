@@ -52,7 +52,10 @@ struct ContentView: View {
                     .accessibilityHint("Shows server process output and logs")
                 
                 // Browser view on the right side
-                BrowserView(readinessDetector: appState.readinessDetector)
+                BrowserView(
+                    readinessDetector: appState.readinessDetector,
+                    webViewModel: appState.webViewModel
+                )
                     .frame(minWidth: 400)
                     .accessibilityLabel("Browser View")
                     .accessibilityHint("Displays the web application when server is ready")

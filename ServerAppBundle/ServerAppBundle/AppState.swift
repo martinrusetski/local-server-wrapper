@@ -90,8 +90,11 @@ class AppState: ObservableObject {
         readinessDetector.$isReady
             .combineLatest(readinessDetector.$detectedURL)
             .sink { [weak self] isReady, detectedURL in
+                print("📡 Readiness changed - isReady: \(isReady), URL: \(detectedURL?.absoluteString ?? "nil")")
+                
                 // When server becomes ready and we have a URL, load it in the browser
                 if isReady, let url = detectedURL {
+                    print("🚀 Loading URL in browser: \(url.absoluteString)")
                     self?.webViewModel.load(url: url)
                     // Cancel timeout timer since server is ready
                     self?.cancelTimeoutTimer()

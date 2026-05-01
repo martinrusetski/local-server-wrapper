@@ -41,10 +41,28 @@ class WebViewModel: ObservableObject {
     /// Load a URL in the web view
     /// - Parameter url: The URL to load
     func load(url: URL) {
+        print("🌐 WebViewModel.load() called with URL: \(url.absoluteString)")
+        print("🌐 Current URL: \(self.url?.absoluteString ?? "nil")")
+        print("🌐 WebView reference: \(webView != nil ? "exists" : "nil")")
+        
+        // Only load if URL actually changed or if we have an error to clear
+        guard self.url != url || self.error != nil else {
+            print("🌐 Skipping load - URL unchanged and no error")
+            return
+        }
+        
         self.url = url
         self.currentURL = url.absoluteString
         self.error = nil // Clear any previous errors
-        webView?.load(URLRequest(url: url))
+        
+        // Load directly in the web view
+        if let webView = webView {
+            print("🌐 Loading URL in webView...")
+            let request = URLRequest(url: url)
+            webView.load(request)
+        } else {
+            print("⚠️ WebView is nil, cannot load URL")
+        }
     }
     
     /// Navigate back in history

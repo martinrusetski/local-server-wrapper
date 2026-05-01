@@ -27,10 +27,8 @@ struct WebView: NSViewRepresentable {
     }
     
     func updateNSView(_ webView: WKWebView, context: Context) {
-        // Load URL if it changed and is different from current
-        if let url = viewModel.url, webView.url != url {
-            webView.load(URLRequest(url: url))
-        }
+        // Don't load URLs here - let the view model handle it directly
+        // This prevents reload loops when other @Published properties change
     }
     
     func makeCoordinator() -> Coordinator {
@@ -49,26 +47,46 @@ struct WebView: NSViewRepresentable {
         // MARK: - WKNavigationDelegate
         
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+            print("🌐 didStartProvisionalNavigation: \(webView.url?.absoluteString ?? "nil")")
             Task { @MainActor in
                 viewModel.updateNavigationState(from: webView)
             }
         }
         
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            print("✅ didFinish navigation: \(webView.url?.absoluteString ?? "nil")")
             Task { @MainActor in
                 viewModel.updateNavigationState(from: webView)
             }
         }
         
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            let nsError = error as NSError
+            print("❌ didFail: \(nsError.domain) code: \(nsError.code) - \(error.localizedDescription)")
+            
             Task { @MainActor in
+                // Ignore cancellation errors (error -999)
+                if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled {
+                    print("⚠️ Ignoring cancellation error")
+                    return
+                }
+                
                 viewModel.error = error
                 viewModel.updateNavigationState(from: webView)
             }
         }
         
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            let nsError = error as NSError
+            print("❌ didFailProvisionalNavigation: \(nsError.domain) code: \(nsError.code) - \(error.localizedDescription)")
+            
             Task { @MainActor in
+                // Ignore cancellation errors (error -999)
+                if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled {
+                    print("⚠️ Ignoring cancellation error")
+                    return
+                }
+                
                 viewModel.error = error
                 viewModel.updateNavigationState(from: webView)
             }

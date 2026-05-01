@@ -10,60 +10,53 @@ import SwiftUI
 /// Browser view with toolbar and web content
 struct BrowserView: View {
     @ObservedObject var readinessDetector: ReadinessDetector
-    @StateObject private var webViewModel = WebViewModel()
+    @ObservedObject var webViewModel: WebViewModel
     
     var body: some View {
         VStack(spacing: 0) {
             // Browser toolbar
             BrowserToolbar(viewModel: webViewModel)
             
-            // Web content
-            if readinessDetector.isReady, let url = readinessDetector.detectedURL {
-                ZStack {
-                    WebView(viewModel: webViewModel)
-                        .onAppear {
-                            webViewModel.load(url: url)
-                        }
-                        .onChange(of: readinessDetector.detectedURL) { newURL in
-                            if let newURL = newURL {
-                                webViewModel.load(url: newURL)
-                            }
-                        }
-                    
-                    // Error overlay
-                    if let error = webViewModel.error {
-                        ErrorView(
-                            message: webViewModel.userFriendlyErrorMessage(for: error),
-                            onRetry: {
-                                webViewModel.retry()
-                            }
-                        )
-                    }
-                }
-            } else {
-                // Show waiting message
-                VStack(spacing: 16) {
-                    ProgressView()
-                        .scaleEffect(1.5)
-                        .accessibilityLabel("Loading")
-                    
-                    Text("Waiting for server to be ready...")
-                        .font(.title3)
-                        .foregroundColor(.secondary)
-                        .accessibilityLabel("Status")
-                        .accessibilityValue("Waiting for server to be ready")
-                    
-                    if let baseURL = readinessDetector.detectedURL?.absoluteString {
-                        Text("Will load: \(baseURL)")
-                            .font(.caption)
+            // Web content - always show WebView, but overlay waiting message when not ready
+            ZStack {
+                // WebView is always present so it can receive load commands
+                WebView(viewModel: webViewModel)
+                
+                // Waiting overlay when server is not ready
+                if !readinessDetector.isReady {
+                    VStack(spacing: 16) {
+                        ProgressView()
+                            .scaleEffect(1.5)
+                            .accessibilityLabel("Loading")
+                        
+                        Text("Waiting for server to be ready...")
+                            .font(.title3)
                             .foregroundColor(.secondary)
-                            .accessibilityLabel("Target URL")
-                            .accessibilityValue(baseURL)
+                            .accessibilityLabel("Status")
+                            .accessibilityValue("Waiting for server to be ready")
+                        
+                        if let baseURL = readinessDetector.detectedURL?.absoluteString {
+                            Text("Will load: \(baseURL)")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .accessibilityLabel("Target URL")
+                                .accessibilityValue(baseURL)
+                        }
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color(NSColor.controlBackgroundColor))
+                    .accessibilityElement(children: .contain)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color(NSColor.controlBackgroundColor))
-                .accessibilityElement(children: .contain)
+                
+                // Error overlay when page fails to load
+                if let error = webViewModel.error {
+                    ErrorView(
+                        message: webViewModel.userFriendlyErrorMessage(for: error),
+                        onRetry: {
+                            webViewModel.retry()
+                        }
+                    )
+                }
             }
         }
     }
@@ -199,10 +192,13 @@ struct ErrorView: View {
 }
 
 #Preview {
-    BrowserView(readinessDetector: ReadinessDetector(
-        readySignalPattern: nil,
-        portDetectionPattern: nil,
-        baseURL: "http://localhost:3000"
-    ))
+    BrowserView(
+        readinessDetector: ReadinessDetector(
+            readySignalPattern: nil,
+            portDetectionPattern: nil,
+            baseURL: "http://localhost:3000"
+        ),
+        webViewModel: WebViewModel()
+    )
     .frame(width: 800, height: 600)
 }
