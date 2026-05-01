@@ -12,53 +12,140 @@ struct ContentView: View {
     @Environment(\.dismiss) private var dismiss
     
     var body: some View {
-        VStack(spacing: 0) {
-            // Toolbar with restart button
-            HStack {
-                Spacer()
-                
-                Button(action: {
-                    appState.restartServer()
-                }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "arrow.clockwise")
-                        Text("Restart Server")
-                    }
-                    .font(.system(size: 13))
-                }
-                .keyboardShortcut("r", modifiers: .command)
-                .buttonStyle(.bordered)
-                .disabled(appState.processManager.isRunning && appState.processManager.exitCode == nil)
-                .help("Restart the server process")
-                .accessibilityLabel("Restart Server")
-                .accessibilityHint(appState.processManager.isRunning && appState.processManager.exitCode == nil ? "Server is currently running" : "Restarts the server process")
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-            }
-            .background(Color(NSColor.windowBackgroundColor))
-            .overlay(
-                Rectangle()
-                    .frame(height: 1)
-                    .foregroundColor(Color(NSColor.separatorColor)),
-                alignment: .bottom
-            )
-            
-            // Main split view
-            HSplitView {
-                // Terminal view on the left side
-                TerminalView(processManager: appState.processManager)
-                    .frame(minWidth: 200)
-                    .accessibilityLabel("Terminal Output")
-                    .accessibilityHint("Shows server process output and logs")
-                
-                // Browser view on the right side
+        HStack(spacing: 0) {
+            // Main content area
+            if appState.readinessDetector.isReady {
+                // Browser view when ready
                 BrowserView(
                     readinessDetector: appState.readinessDetector,
                     webViewModel: appState.webViewModel
                 )
-                    .frame(minWidth: 400)
-                    .accessibilityLabel("Browser View")
-                    .accessibilityHint("Displays the web application when server is ready")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityLabel("Browser View")
+                .accessibilityHint("Displays the web application when server is ready")
+            } else {
+                // Terminal view before ready
+                VStack(spacing: 0) {
+                    // Simple toolbar
+                    HStack {
+                        Spacer()
+                        Text("Starting Server...")
+                            .font(.headline)
+                        Spacer()
+                    }
+                    .padding()
+                    .background(Color(NSColor.windowBackgroundColor))
+                    
+                    Divider()
+                    
+                    // Terminal output
+                    TerminalView(processManager: appState.processManager)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            
+            // Sidebar - Terminal (collapsible, on the right)
+            if appState.isSidebarVisible {
+                Divider()
+                
+                VStack(spacing: 0) {
+                    // Sidebar header with restart button
+                    HStack {
+                        Text("Terminal")
+                            .font(.headline)
+                        
+                        Spacer()
+                        
+                        Button(action: {
+                            appState.restartServer()
+                        }) {
+                            Label("Restart Server", systemImage: "arrow.clockwise")
+                        }
+                        .buttonStyle(.borderless)
+                        .keyboardShortcut("r", modifiers: .command)
+                        .help("Restart the server process")
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Color(NSColor.windowBackgroundColor))
+                    
+                    Divider()
+                    
+                    TerminalView(processManager: appState.processManager)
+                }
+                .frame(width: 350)
+                .accessibilityLabel("Terminal Output")
+                .accessibilityHint("Shows server process output and logs")
+            }
+        }
+        .toolbar {
+            ToolbarItemGroup(placement: .navigation) {
+                if appState.readinessDetector.isReady {
+                    // Browser navigation controls
+                    Button(action: { appState.webViewModel.goBack() }) {
+                        Label("Back", systemImage: "chevron.left")
+                    }
+                    .keyboardShortcut("[", modifiers: .command)
+                    .disabled(!appState.webViewModel.canGoBack)
+                    .help("Go Back")
+                    
+                    Button(action: { appState.webViewModel.goForward() }) {
+                        Label("Forward", systemImage: "chevron.right")
+                    }
+                    .keyboardShortcut("]", modifiers: .command)
+                    .disabled(!appState.webViewModel.canGoForward)
+                    .help("Go Forward")
+                    
+                    Button(action: { appState.webViewModel.reload() }) {
+                        Label("Reload", systemImage: "arrow.clockwise")
+                    }
+                    .keyboardShortcut("r", modifiers: [.command, .shift])
+                    .help("Reload Page")
+                }
+            }
+            
+            ToolbarItem(placement: .principal) {
+                if appState.readinessDetector.isReady {
+                    // URL display - centered
+                    HStack(spacing: 8) {
+                        if appState.webViewModel.isLoading {
+                            ProgressView()
+                                .scaleEffect(0.6)
+                                .frame(width: 16, height: 16)
+                        } else {
+                            Image(systemName: "lock.fill")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        Text(appState.webViewModel.currentURL)
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
+                    .background(Color(NSColor.controlBackgroundColor))
+                    .cornerRadius(6)
+                    .frame(maxWidth: 500)
+                } else {
+                    EmptyView()
+                }
+            }
+            
+            ToolbarItemGroup(placement: .automatic) {
+                if appState.readinessDetector.isReady {
+                    Button(action: {
+                        withAnimation {
+                            appState.toggleSidebar()
+                        }
+                    }) {
+                        Label("Toggle Terminal", systemImage: "sidebar.right")
+                    }
+                    .help("Show/hide terminal output")
+                    .keyboardShortcut("t", modifiers: [.command, .shift])
+                }
             }
         }
         .onAppear {

@@ -7,140 +7,66 @@
 
 import SwiftUI
 
-/// Browser view with toolbar and web content
+/// Browser view with web content
 struct BrowserView: View {
     @ObservedObject var readinessDetector: ReadinessDetector
     @ObservedObject var webViewModel: WebViewModel
     
     var body: some View {
-        VStack(spacing: 0) {
-            // Browser toolbar
-            BrowserToolbar(viewModel: webViewModel)
-            
-            // Web content - always show WebView, but overlay waiting message when not ready
-            ZStack {
-                // WebView is always present so it can receive load commands
-                WebView(viewModel: webViewModel)
-                
-                // Waiting overlay when server is not ready
-                if !readinessDetector.isReady {
-                    VStack(spacing: 16) {
-                        ProgressView()
-                            .scaleEffect(1.5)
-                            .accessibilityLabel("Loading")
-                        
-                        Text("Waiting for server to be ready...")
-                            .font(.title3)
-                            .foregroundColor(.secondary)
-                            .accessibilityLabel("Status")
-                            .accessibilityValue("Waiting for server to be ready")
-                        
-                        if let baseURL = readinessDetector.detectedURL?.absoluteString {
-                            Text("Will load: \(baseURL)")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .accessibilityLabel("Target URL")
-                                .accessibilityValue(baseURL)
+        ZStack {
+            // WebView is always present so it can receive load commands
+            WebView(viewModel: webViewModel)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onAppear {
+                    // If we have a URL but haven't loaded it yet, load it now
+                    if let url = webViewModel.url, let webView = webViewModel.webView {
+                        webView.load(URLRequest(url: url))
+                    } else if let url = webViewModel.url {
+                        // WebView might not be set yet, try again shortly
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            if let webView = webViewModel.webView {
+                                webView.load(URLRequest(url: url))
+                            }
                         }
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color(NSColor.controlBackgroundColor))
-                    .accessibilityElement(children: .contain)
                 }
-                
-                // Error overlay when page fails to load
-                if let error = webViewModel.error {
-                    ErrorView(
-                        message: webViewModel.userFriendlyErrorMessage(for: error),
-                        onRetry: {
-                            webViewModel.retry()
-                        }
-                    )
-                }
-            }
-        }
-    }
-}
-
-/// Browser toolbar with navigation controls
-struct BrowserToolbar: View {
-    @ObservedObject var viewModel: WebViewModel
-    
-    var body: some View {
-        HStack(spacing: 12) {
-            // Back button
-            Button(action: { viewModel.goBack() }) {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 14, weight: .medium))
-            }
-            .keyboardShortcut("[", modifiers: .command)
-            .disabled(!viewModel.canGoBack)
-            .buttonStyle(.borderless)
-            .help("Go Back")
-            .accessibilityLabel("Go Back")
-            .accessibilityHint(viewModel.canGoBack ? "Navigate to previous page" : "No previous page available")
             
-            // Forward button
-            Button(action: { viewModel.goForward() }) {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 14, weight: .medium))
-            }
-            .keyboardShortcut("]", modifiers: .command)
-            .disabled(!viewModel.canGoForward)
-            .buttonStyle(.borderless)
-            .help("Go Forward")
-            .accessibilityLabel("Go Forward")
-            .accessibilityHint(viewModel.canGoForward ? "Navigate to next page" : "No next page available")
-            
-            // Reload button
-            Button(action: { viewModel.reload() }) {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 14, weight: .medium))
-            }
-            .keyboardShortcut("r", modifiers: [.command, .shift])
-            .buttonStyle(.borderless)
-            .help("Reload")
-            .accessibilityLabel("Reload Page")
-            .accessibilityHint("Reloads the current page")
-            
-            // URL display
-            HStack(spacing: 8) {
-                if viewModel.isLoading {
+            // Waiting overlay when server is not ready
+            if !readinessDetector.isReady {
+                VStack(spacing: 16) {
                     ProgressView()
-                        .scaleEffect(0.6)
-                        .frame(width: 16, height: 16)
+                        .scaleEffect(1.5)
                         .accessibilityLabel("Loading")
-                } else {
-                    Image(systemName: "lock.fill")
-                        .font(.system(size: 12))
+                    
+                    Text("Waiting for server to be ready...")
+                        .font(.title3)
                         .foregroundColor(.secondary)
-                        .accessibilityLabel("Secure Connection")
+                        .accessibilityLabel("Status")
+                        .accessibilityValue("Waiting for server to be ready")
+                    
+                    if let baseURL = readinessDetector.detectedURL?.absoluteString {
+                        Text("Will load: \(baseURL)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .accessibilityLabel("Target URL")
+                            .accessibilityValue(baseURL)
+                    }
                 }
-                
-                Text(viewModel.currentURL)
-                    .font(.system(size: 13))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .accessibilityLabel("Current URL")
-                    .accessibilityValue(viewModel.currentURL)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(NSColor.controlBackgroundColor))
+                .accessibilityElement(children: .contain)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(Color(NSColor.controlBackgroundColor))
-            .cornerRadius(6)
-            .frame(maxWidth: .infinity)
-            .accessibilityElement(children: .combine)
+            
+            // Error overlay when page fails to load
+            if let error = webViewModel.error {
+                ErrorView(
+                    message: webViewModel.userFriendlyErrorMessage(for: error),
+                    onRetry: {
+                        webViewModel.retry()
+                    }
+                )
+            }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Color(NSColor.windowBackgroundColor))
-        .overlay(
-            Rectangle()
-                .frame(height: 1)
-                .foregroundColor(Color(NSColor.separatorColor)),
-            alignment: .bottom
-        )
     }
 }
 

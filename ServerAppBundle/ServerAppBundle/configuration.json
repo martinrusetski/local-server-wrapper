@@ -1,0 +1,9 @@
+{
+  "name": "Test Server",
+  "command": "python3",
+  "arguments": ["-m", "http.server", "8080"],
+  "localhostURL": "http://localhost:8080",
+  "readySignalPattern": "Serving HTTP",
+  "portDetectionPattern": null,
+  "customIconPath": null
+}

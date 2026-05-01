@@ -63,17 +63,11 @@ class AppBundleGenerator: AppBundleGeneratorProtocol {
         try Task.checkCancellation()
         
         // Report progress: Creating structure (0-20%)
-        progressHandler?(0.0, "Creating bundle structure...")
-        try createBundleStructure(at: bundleURL)
-        progressHandler?(0.2, "Bundle structure created")
-        
-        // Check for cancellation
-        try Task.checkCancellation()
-        
-        // Report progress: Copying executable (20-40%)
-        progressHandler?(0.2, "Copying executable...")
+        progressHandler?(0.0, "Copying app template...")
+        // Note: We skip createBundleStructure because copyExecutableTemplate
+        // copies the entire ServerAppBundle.app which already has the structure
         try copyExecutableTemplate(to: bundleURL)
-        progressHandler?(0.4, "Executable copied")
+        progressHandler?(0.2, "App template copied")
         
         // Check for cancellation
         try Task.checkCancellation()
@@ -110,8 +104,10 @@ class AppBundleGenerator: AppBundleGeneratorProtocol {
         try Task.checkCancellation()
         
         // Report progress: Code signing (90-100%)
-        progressHandler?(0.9, "Signing bundle...")
-        try await signBundle(at: bundleURL)
+        progressHandler?(0.9, "Finalizing bundle...")
+        // Note: Skipping code signing for now - bundles can be opened with right-click > Open
+        // or by running: xattr -d com.apple.quarantine /path/to/bundle.app
+        os_log(.info, log: logger, "Skipping code signing (bundle can be opened with right-click > Open)")
         
         // Report progress: Complete (100%)
         progressHandler?(1.0, "Bundle generation complete")
@@ -173,24 +169,86 @@ class AppBundleGenerator: AppBundleGeneratorProtocol {
     /// - Parameter bundleURL: The URL of the bundle being created
     /// - Throws: GenerationError.resourceCopyFailed if copying fails
     private func copyExecutableTemplate(to bundleURL: URL) throws {
-        // For now, this is a placeholder
-        // In a real implementation, we would copy the ServerAppBundle executable
-        // from the Configuration Manager's resources
+        // Instead of copying just the executable, we need to copy the entire ServerAppBundle.app
+        // and then customize it. This preserves all the necessary bundle structure.
         
-        let macOSURL = bundleURL.appendingPathComponent("Contents/MacOS")
-        let executableURL = macOSURL.appendingPathComponent("ServerAppBundle")
+        // Find the source ServerAppBundle.app
+        var sourceAppURL: URL?
         
-        // TODO: Copy actual executable from bundle resources
-        // For now, create a placeholder file
-        let placeholderData = Data("#!/bin/bash\necho 'Placeholder executable'\n".utf8)
-        do {
-            try placeholderData.write(to: executableURL)
+        // 1. Try embedded resource
+        if let embeddedAppURL = Bundle.main.url(forResource: "ServerAppBundle", withExtension: "app") {
+            if FileManager.default.fileExists(atPath: embeddedAppURL.path) {
+                sourceAppURL = embeddedAppURL
+                os_log(.info, log: logger, "Using embedded ServerAppBundle.app from resources")
+            }
+        }
+        
+        // 2. Try workspace Release build
+        if sourceAppURL == nil, let executablePath = Bundle.main.executablePath {
+            let executableURL = URL(fileURLWithPath: executablePath)
+            var currentURL = executableURL
+            for _ in 0..<10 {
+                currentURL = currentURL.deletingLastPathComponent()
+                if currentURL.lastPathComponent == "LocalServerWrapper" {
+                    let workspaceRoot = currentURL.deletingLastPathComponent()
+                    let releasePath = workspaceRoot.appendingPathComponent("ServerAppBundle/build/Build/Products/Release/ServerAppBundle.app")
+                    if FileManager.default.fileExists(atPath: releasePath.path) {
+                        sourceAppURL = releasePath
+                        os_log(.info, log: logger, "Found Release build in workspace")
+                        break
+                    }
+                }
+            }
+        }
+        
+        // 3. Try DerivedData Release builds
+        if sourceAppURL == nil {
+            let derivedDataPath = NSHomeDirectory() + "/Library/Developer/Xcode/DerivedData"
+            let derivedDataURL = URL(fileURLWithPath: derivedDataPath)
             
-            // Make executable
-            let attributes = [FileAttributeKey.posixPermissions: 0o755]
-            try FileManager.default.setAttributes(attributes, ofItemAtPath: executableURL.path)
+            if let derivedDataContents = try? FileManager.default.contentsOfDirectory(
+                at: derivedDataURL,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            ) {
+                for folder in derivedDataContents {
+                    if folder.lastPathComponent.hasPrefix("ServerAppBundle-") {
+                        let releasePath = folder.appendingPathComponent("Build/Products/Release/ServerAppBundle.app")
+                        if FileManager.default.fileExists(atPath: releasePath.path) {
+                            sourceAppURL = releasePath
+                            os_log(.info, log: logger, "Found Release build in DerivedData")
+                            break
+                        }
+                    }
+                }
+            }
+        }
+        
+        guard let sourceURL = sourceAppURL else {
+            os_log(.error, log: logger, "ServerAppBundle.app not found")
+            throw GenerationError.resourceCopyFailed("""
+                ServerAppBundle.app not found.
+                
+                For development: Build ServerAppBundle in Release mode first.
+                For distribution: Add ServerAppBundle.app to LocalServerWrapper's Copy Bundle Resources.
+                
+                See SIMPLE_SOLUTION.md for instructions.
+                """)
+        }
+        
+        os_log(.debug, log: logger, "Copying entire app bundle from: %{public}@", sourceURL.path)
+        
+        // Remove the bundle we created (we'll replace it with a copy of the source)
+        try? FileManager.default.removeItem(at: bundleURL)
+        
+        do {
+            // Copy the entire ServerAppBundle.app
+            try FileManager.default.copyItem(at: sourceURL, to: bundleURL)
+            
+            os_log(.debug, log: logger, "App bundle copied successfully")
         } catch {
-            throw GenerationError.resourceCopyFailed("Failed to create executable: \(error.localizedDescription)")
+            os_log(.error, log: logger, "Failed to copy app bundle: %{public}@", error.localizedDescription)
+            throw GenerationError.resourceCopyFailed("Failed to copy app bundle: \(error.localizedDescription)")
         }
     }
     
@@ -236,42 +294,72 @@ class AppBundleGenerator: AppBundleGeneratorProtocol {
     private func signBundle(at bundleURL: URL) async throws {
         os_log(.info, log: logger, "Signing bundle: %{public}@", bundleURL.lastPathComponent)
         
+        // First, remove any existing signature from the executable
+        // This is important because we copied a pre-signed executable
+        let executableURL = bundleURL.appendingPathComponent("Contents/MacOS/ServerAppBundle")
+        let removeProcess = Process()
+        removeProcess.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        removeProcess.arguments = ["--remove-signature", executableURL.path]
+        try? removeProcess.run()
+        removeProcess.waitUntilExit()
+        os_log(.debug, log: logger, "Removed existing signature from executable")
+        
         // Locate the entitlements file
-        // First try to find it in the main bundle resources
-        var entitlementsURL = Bundle.main.url(forResource: "ServerAppBundle", withExtension: "entitlements")
+        var entitlementsURL: URL?
+        var searchedPaths: [String] = []
         
-        // If not found in bundle resources, try relative to the executable
-        if entitlementsURL == nil {
-            let executablePath = Bundle.main.executablePath ?? ""
-            let executableDir = URL(fileURLWithPath: executablePath).deletingLastPathComponent()
-            let candidatePath = executableDir.appendingPathComponent("../ServerAppBundle.entitlements")
+        // 1. Try to find it in the main bundle resources
+        if let bundleResource = Bundle.main.url(forResource: "ServerAppBundle", withExtension: "entitlements") {
+            searchedPaths.append(bundleResource.path)
+            if FileManager.default.fileExists(atPath: bundleResource.path) {
+                entitlementsURL = bundleResource
+            }
+        }
+        
+        // 2. Try to find workspace root by navigating up from executable
+        if entitlementsURL == nil, let executablePath = Bundle.main.executablePath {
+            let executableURL = URL(fileURLWithPath: executablePath)
+            var currentURL = executableURL
+            for _ in 0..<10 {
+                currentURL = currentURL.deletingLastPathComponent()
+                if currentURL.lastPathComponent == "LocalServerWrapper" {
+                    let workspaceRoot = currentURL.deletingLastPathComponent()
+                    let candidatePath = workspaceRoot.appendingPathComponent("ServerAppBundle/ServerAppBundle/ServerAppBundle.entitlements")
+                    searchedPaths.append(candidatePath.path)
+                    if FileManager.default.fileExists(atPath: candidatePath.path) {
+                        entitlementsURL = candidatePath
+                        break
+                    }
+                }
+            }
+        }
+        
+        // 3. Try SRCROOT environment variable
+        if entitlementsURL == nil, let sourceRoot = ProcessInfo.processInfo.environment["SRCROOT"] {
+            let sourceRootURL = URL(fileURLWithPath: sourceRoot)
+            let candidatePath = sourceRootURL
+                .deletingLastPathComponent()
+                .appendingPathComponent("ServerAppBundle/ServerAppBundle/ServerAppBundle.entitlements")
+            searchedPaths.append(candidatePath.path)
             if FileManager.default.fileExists(atPath: candidatePath.path) {
                 entitlementsURL = candidatePath
             }
         }
         
-        // If still not found, try the project root (for development/testing)
+        // 4. Try absolute path (hardcoded for development)
         if entitlementsURL == nil {
-            let projectRoot = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            let candidatePath = projectRoot.appendingPathComponent("ServerAppBundle/ServerAppBundle/ServerAppBundle.entitlements")
-            if FileManager.default.fileExists(atPath: candidatePath.path) {
-                entitlementsURL = candidatePath
-            }
-        }
-        
-        // Try workspace root relative path
-        if entitlementsURL == nil {
-            // Get the workspace root by going up from the current directory
-            let currentDir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            let candidatePath = currentDir.appendingPathComponent("ServerAppBundle/ServerAppBundle/ServerAppBundle.entitlements")
-            if FileManager.default.fileExists(atPath: candidatePath.path) {
-                entitlementsURL = candidatePath
+            let absolutePath = URL(fileURLWithPath: "/Users/martinr/Developer/terminal-web-wrapper/ServerAppBundle/ServerAppBundle/ServerAppBundle.entitlements")
+            searchedPaths.append(absolutePath.path)
+            if FileManager.default.fileExists(atPath: absolutePath.path) {
+                entitlementsURL = absolutePath
+                os_log(.info, log: logger, "Using hardcoded absolute path for entitlements (development mode)")
             }
         }
         
         guard let entitlementsURL = entitlementsURL else {
-            os_log(.error, log: logger, "Entitlements file not found. Searched locations: bundle resources, executable directory, project root")
-            throw GenerationError.signingFailed("Entitlements file not found. Please ensure ServerAppBundle.entitlements exists in the project.")
+            let searchedPathsString = searchedPaths.joined(separator: "\n  - ")
+            os_log(.error, log: logger, "Entitlements file not found. Searched:\n%{public}@", searchedPathsString)
+            throw GenerationError.signingFailed("Entitlements file not found. Searched locations:\n  - \(searchedPathsString)")
         }
         
         os_log(.debug, log: logger, "Using entitlements file: %{public}@", entitlementsURL.path)

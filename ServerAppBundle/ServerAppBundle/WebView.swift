@@ -15,8 +15,16 @@ struct WebView: NSViewRepresentable {
     // MARK: - NSViewRepresentable
     
     func makeNSView(context: Context) -> WKWebView {
-        let webView = WKWebView()
+        // Configure WKWebView with proper settings for localhost
+        let configuration = WKWebViewConfiguration()
+        configuration.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
+        configuration.setValue(true, forKey: "allowUniversalAccessFromFileURLs")
+        
+        let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
+        
+        // Enable developer extras for debugging
+        webView.configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
         
         // Store reference in view model
         DispatchQueue.main.async {
@@ -47,14 +55,12 @@ struct WebView: NSViewRepresentable {
         // MARK: - WKNavigationDelegate
         
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-            print("🌐 didStartProvisionalNavigation: \(webView.url?.absoluteString ?? "nil")")
             Task { @MainActor in
                 viewModel.updateNavigationState(from: webView)
             }
         }
         
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            print("✅ didFinish navigation: \(webView.url?.absoluteString ?? "nil")")
             Task { @MainActor in
                 viewModel.updateNavigationState(from: webView)
             }
@@ -62,12 +68,10 @@ struct WebView: NSViewRepresentable {
         
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
             let nsError = error as NSError
-            print("❌ didFail: \(nsError.domain) code: \(nsError.code) - \(error.localizedDescription)")
             
             Task { @MainActor in
                 // Ignore cancellation errors (error -999)
                 if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled {
-                    print("⚠️ Ignoring cancellation error")
                     return
                 }
                 
@@ -78,12 +82,10 @@ struct WebView: NSViewRepresentable {
         
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
             let nsError = error as NSError
-            print("❌ didFailProvisionalNavigation: \(nsError.domain) code: \(nsError.code) - \(error.localizedDescription)")
             
             Task { @MainActor in
                 // Ignore cancellation errors (error -999)
                 if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled {
-                    print("⚠️ Ignoring cancellation error")
                     return
                 }
                 

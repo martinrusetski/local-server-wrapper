@@ -39,6 +39,9 @@ class AppState: ObservableObject {
     /// Whether to show the timeout alert
     @Published var showTimeoutAlert: Bool = false
     
+    /// Whether the sidebar is visible
+    @Published var isSidebarVisible: Bool = false
+    
     /// Combine cancellables for managing subscriptions
     private var cancellables = Set<AnyCancellable>()
     
@@ -90,14 +93,13 @@ class AppState: ObservableObject {
         readinessDetector.$isReady
             .combineLatest(readinessDetector.$detectedURL)
             .sink { [weak self] isReady, detectedURL in
-                print("📡 Readiness changed - isReady: \(isReady), URL: \(detectedURL?.absoluteString ?? "nil")")
-                
                 // When server becomes ready and we have a URL, load it in the browser
                 if isReady, let url = detectedURL {
-                    print("🚀 Loading URL in browser: \(url.absoluteString)")
                     self?.webViewModel.load(url: url)
                     // Cancel timeout timer since server is ready
                     self?.cancelTimeoutTimer()
+                    // Hide sidebar when browser is ready
+                    self?.isSidebarVisible = false
                 }
             }
             .store(in: &cancellables)
@@ -241,5 +243,10 @@ class AppState: ObservableObject {
     /// Check if the process is running (for close confirmation)
     var isProcessRunning: Bool {
         processManager.isRunning
+    }
+    
+    /// Toggle sidebar visibility
+    func toggleSidebar() {
+        isSidebarVisible.toggle()
     }
 }

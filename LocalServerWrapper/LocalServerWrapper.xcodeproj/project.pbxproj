@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		1F9812E42FA51118003032DD /* ServerAppBundle.app in Resources */ = {isa = PBXBuildFile; fileRef = 1F9812E32FA51118003032DD /* ServerAppBundle.app */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		1F8D25C62FA49244001DCFE4 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -27,6 +31,7 @@
 		1F8D25B82FA49243001DCFE4 /* LocalServerWrapper.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LocalServerWrapper.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1F8D25C52FA49244001DCFE4 /* LocalServerWrapperTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LocalServerWrapperTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		1F8D25CF2FA49244001DCFE4 /* LocalServerWrapperUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LocalServerWrapperUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		1F9812E32FA51118003032DD /* ServerAppBundle.app */ = {isa = PBXFileReference; lastKnownFileType = wrapper.application; name = ServerAppBundle.app; path = ../ServerAppBundle/build/Build/Products/Release/ServerAppBundle.app; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -75,6 +80,7 @@
 		1F8D25AF2FA49243001DCFE4 = {
 			isa = PBXGroup;
 			children = (
+				1F9812E32FA51118003032DD /* ServerAppBundle.app */,
 				1F8D25BA2FA49243001DCFE4 /* LocalServerWrapper */,
 				1F8D25C82FA49244001DCFE4 /* LocalServerWrapperTests */,
 				1F8D25D22FA49244001DCFE4 /* LocalServerWrapperUITests */,
@@ -212,6 +218,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1F9812E42FA51118003032DD /* ServerAppBundle.app in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -398,7 +405,7 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = AX3H9YA887;
-				ENABLE_APP_SANDBOX = YES;
+				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
@@ -442,7 +449,7 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = AX3H9YA887;
-				ENABLE_APP_SANDBOX = YES;
+				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;

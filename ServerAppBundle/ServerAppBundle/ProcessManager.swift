@@ -124,6 +124,25 @@ class ProcessManager: ProcessManagerProtocol {
         newProcess.executableURL = URL(fileURLWithPath: command)
         newProcess.arguments = arguments
         
+        // Set up environment with proper PATH
+        // Include common Homebrew locations and standard system paths
+        var environment = ProcessInfo.processInfo.environment
+        let homebrewPaths = [
+            "/opt/homebrew/bin",      // Apple Silicon Homebrew
+            "/usr/local/bin",         // Intel Homebrew
+            "/opt/homebrew/sbin",
+            "/usr/local/sbin"
+        ]
+        let systemPaths = [
+            "/usr/bin",
+            "/bin",
+            "/usr/sbin",
+            "/sbin"
+        ]
+        let allPaths = (homebrewPaths + systemPaths).joined(separator: ":")
+        environment["PATH"] = allPaths
+        newProcess.environment = environment
+        
         // Set up pipes for stdout and stderr
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
