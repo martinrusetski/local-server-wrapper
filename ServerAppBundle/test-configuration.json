@@ -1,0 +1,12 @@
+{
+  "id": "12345678-1234-1234-1234-123456789012",
+  "name": "Test Server",
+  "command": "npm",
+  "arguments": ["run", "dev"],
+  "localhostURL": "http://localhost:3000",
+  "readySignalPattern": "Server listening on",
+  "portDetectionPattern": "port (\\d+)",
+  "customIconPath": null,
+  "createdAt": "2024-01-01T00:00:00Z",
+  "updatedAt": "2024-01-01T00:00:00Z"
+}
