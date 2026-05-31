@@ -44,6 +44,12 @@ struct InfoPlistGenerator {
     private static func createInfoPlistDictionary(for configuration: ServerConfiguration) -> [String: Any] {
         var infoPlist: [String: Any] = [:]
         
+        // Required: Info.plist format version
+        infoPlist["CFBundleInfoDictionaryVersion"] = "6.0"
+        
+        // Required: Development region
+        infoPlist["CFBundleDevelopmentRegion"] = "en"
+        
         // Bundle identifier - unique per configuration
         infoPlist["CFBundleIdentifier"] = "com.localserverwrapper.generated.\(configuration.id.uuidString.lowercased())"
         
@@ -63,6 +69,9 @@ struct InfoPlistGenerator {
         // Package type - application
         infoPlist["CFBundlePackageType"] = "APPL"
         
+        // Copyright
+        infoPlist["NSHumanReadableCopyright"] = ""
+        
         // Icon file - set if custom icon provided
         if configuration.customIconPath != nil {
             infoPlist["CFBundleIconFile"] = "AppIcon"
@@ -76,9 +85,6 @@ struct InfoPlistGenerator {
         
         // Principal class (for SwiftUI apps)
         infoPlist["NSPrincipalClass"] = "NSApplication"
-        
-        // Main storyboard or nib (not used for SwiftUI, but can be included for compatibility)
-        // infoPlist["NSMainStoryboardFile"] = "Main"
         
         // Application category
         infoPlist["LSApplicationCategoryType"] = "public.app-category.developer-tools"

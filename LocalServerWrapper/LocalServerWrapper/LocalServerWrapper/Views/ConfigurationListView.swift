@@ -7,6 +7,26 @@
 
 import SwiftUI
 
+/// Identifies which sheet to present: new or edit
+enum ConfigurationSheet: Identifiable {
+    case new
+    case edit(ServerConfiguration)
+    
+    var id: String {
+        switch self {
+        case .new: return "new"
+        case .edit(let config): return config.id.uuidString
+        }
+    }
+    
+    var editingConfig: ServerConfiguration? {
+        switch self {
+        case .new: return nil
+        case .edit(let config): return config
+        }
+    }
+}
+
 /// Main view displaying the list of server configurations
 struct ConfigurationListView: View {
     // MARK: - Properties
@@ -17,11 +37,8 @@ struct ConfigurationListView: View {
     /// Search text for filtering configurations
     @State private var searchText = ""
     
-    /// Whether the configuration editor sheet is presented
-    @State private var showingEditor = false
-    
-    /// The configuration being edited (nil for new configuration)
-    @State private var editingConfiguration: ServerConfiguration?
+    /// The active configuration sheet (nil when no sheet is presented)
+    @State private var activeSheet: ConfigurationSheet?
     
     /// Whether the delete confirmation alert is shown
     @State private var showingDeleteAlert = false
@@ -46,12 +63,15 @@ struct ConfigurationListView: View {
         } detail: {
             detailContent
         }
-        .sheet(isPresented: $showingEditor) {
+        .sheet(item: $activeSheet) { sheet in
             ConfigurationEditorView(
                 configurationManager: viewModel.configurationManager,
-                editingConfiguration: editingConfiguration,
+                editingConfiguration: sheet.editingConfig,
                 onSave: {
                     viewModel.refresh()
+                    if case .edit(let config) = sheet {
+                        selectedConfiguration = viewModel.configurations.first(where: { $0.id == config.id })
+                    }
                 }
             )
         }
@@ -108,8 +128,7 @@ struct ConfigurationListView: View {
                     .tag(config)
                     .contextMenu {
                         Button("Edit") {
-                            editingConfiguration = config
-                            showingEditor = true
+                            activeSheet = .edit(config)
                         }
                         
                         Button("Generate App Bundle") {
@@ -129,8 +148,7 @@ struct ConfigurationListView: View {
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
-                        editingConfiguration = nil
-                        showingEditor = true
+                        activeSheet = .new
                     } label: {
                         Label("New Configuration", systemImage: "plus")
                     }
@@ -157,8 +175,7 @@ struct ConfigurationListView: View {
                 ConfigurationDetailView(
                     configuration: config,
                     onEdit: {
-                        editingConfiguration = config
-                        showingEditor = true
+                        activeSheet = .edit(config)
                     },
                     onGenerate: {
                         viewModel.generateAppBundle(for: config)
@@ -170,8 +187,7 @@ struct ConfigurationListView: View {
                 )
             } else if viewModel.configurations.isEmpty {
                 EmptyStateView {
-                    editingConfiguration = nil
-                    showingEditor = true
+                    activeSheet = .new
                 }
             } else {
                 Text("Select a configuration to view details")

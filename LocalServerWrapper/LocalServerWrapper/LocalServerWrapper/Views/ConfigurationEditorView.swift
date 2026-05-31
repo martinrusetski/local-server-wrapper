@@ -498,11 +498,14 @@ struct ConfigurationEditorView: View {
             .map { String($0) }
             .filter { !$0.isEmpty }
         
+        let trimmedIconPath = customIconPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        
         // Create or update configuration
         var config: ServerConfiguration
+        let configId: UUID
         
         if let existing = editingConfiguration {
-            // Update existing configuration
+            configId = existing.id
             config = ServerConfiguration(
                 id: existing.id,
                 name: name.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -511,12 +514,11 @@ struct ConfigurationEditorView: View {
                 localhostURL: localhostURL.isEmpty ? nil : localhostURL.trimmingCharacters(in: .whitespacesAndNewlines),
                 readySignalPattern: readySignalPattern.isEmpty ? nil : readySignalPattern.trimmingCharacters(in: .whitespacesAndNewlines),
                 portDetectionPattern: portDetectionPattern.isEmpty ? nil : portDetectionPattern.trimmingCharacters(in: .whitespacesAndNewlines),
-                customIconPath: customIconPath.isEmpty ? nil : customIconPath.trimmingCharacters(in: .whitespacesAndNewlines)
+                customIconPath: nil // set below after potential storage
             )
             config.createdAt = existing.createdAt
             config.touch()
         } else {
-            // Create new configuration
             config = ServerConfiguration(
                 name: name.trimmingCharacters(in: .whitespacesAndNewlines),
                 command: command.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -524,8 +526,21 @@ struct ConfigurationEditorView: View {
                 localhostURL: localhostURL.isEmpty ? nil : localhostURL.trimmingCharacters(in: .whitespacesAndNewlines),
                 readySignalPattern: readySignalPattern.isEmpty ? nil : readySignalPattern.trimmingCharacters(in: .whitespacesAndNewlines),
                 portDetectionPattern: portDetectionPattern.isEmpty ? nil : portDetectionPattern.trimmingCharacters(in: .whitespacesAndNewlines),
-                customIconPath: customIconPath.isEmpty ? nil : customIconPath.trimmingCharacters(in: .whitespacesAndNewlines)
+                customIconPath: nil // set below after potential storage
             )
+            configId = config.id
+        }
+        
+        // Store the icon in managed storage if a custom icon was selected
+        if !trimmedIconPath.isEmpty {
+            if IconStorage.isManagedPath(trimmedIconPath) {
+                config.customIconPath = trimmedIconPath
+            } else if let storedPath = IconStorage.storeIcon(from: trimmedIconPath, for: configId) {
+                config.customIconPath = storedPath
+            } else {
+                // Fallback: keep the original path
+                config.customIconPath = trimmedIconPath
+            }
         }
         
         // Save configuration

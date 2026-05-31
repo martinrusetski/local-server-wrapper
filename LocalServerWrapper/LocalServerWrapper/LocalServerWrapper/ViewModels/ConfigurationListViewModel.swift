@@ -83,6 +83,7 @@ class ConfigurationListViewModel: ObservableObject {
         os_log(.info, log: logger, "User deleting configuration: %{public}@", configuration.name)
         do {
             try configurationManager.deleteConfiguration(id: configuration.id)
+            IconStorage.removeIcon(for: configuration.id)
             refresh()
             successMessage = "Configuration '\(configuration.name)' deleted successfully"
             showingSuccess = true
