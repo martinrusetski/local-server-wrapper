@@ -139,7 +139,7 @@ This script verifies:
 
 ### Verification Documentation
 
-See [SANDBOX_VERIFICATION.md](./SANDBOX_VERIFICATION.md) for detailed verification results and evidence that all requirements are satisfied.
+The entitlements are verified by building the project and checking the embedded provisioning profile with `codesign -d --entitlements - ServerAppBundle.app`.
 
 ## Comparison with Configuration Manager
 

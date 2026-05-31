@@ -107,16 +107,49 @@ The original Swift Package Manager project (which couldn't run GUI apps) has bee
 archive/LocalServerWrapper-SPM/
 ```
 
+## Keyboard Shortcuts
+
+### Configuration List
+| Shortcut | Action |
+|----------|--------|
+| ⌘N | New Configuration |
+| ⌘R | Refresh list |
+| ⌘W | Close window |
+
+### Configuration Editor
+| Shortcut | Action |
+|----------|--------|
+| ⌘↩ | Save configuration |
+| ⎋ | Cancel / Dismiss |
+
+### Generated App Bundle
+| Shortcut | Action |
+|----------|--------|
+| ⌘R | Restart server |
+| ⌘⇧R | Reload browser |
+| ⌘[ | Browser back |
+| ⌘] | Browser forward |
+| ⌘⇧T | Toggle terminal sidebar |
+
+## Building
+
+### Configuration Manager
+```bash
+open LocalServerWrapper/LocalServerWrapper.xcodeproj
+# Then press ⌘B or ⌘R
+```
+
+### ServerAppBundle (for bundle generation)
+The generated app bundles need a **Release** build of ServerAppBundle:
+```bash
+cd ServerAppBundle
+xcodebuild -project ServerAppBundle.xcodeproj -scheme ServerAppBundle -configuration Release -derivedDataPath build clean build
+```
+This creates the Release build used when generating app bundles from the Configuration Manager.
+
 ## Documentation
 
 - [How to Run](LocalServerWrapper/HOW_TO_RUN.md) - Detailed running and testing guide
 - [Requirements](.kiro/specs/local-server-wrapper/requirements.md) - Project requirements
+- [Design](.kiro/specs/local-server-wrapper/design.md) - Architecture and design
 - [Tasks](.kiro/specs/local-server-wrapper/tasks.md) - Implementation task list
-
-## License
-
-[Add your license here]
-
-## Contributing
-
-[Add contribution guidelines here]

@@ -128,7 +128,7 @@ The ServerAppBundle is **fully relocatable** and can be moved to any filesystem 
 
 ### Verification
 
-See [RELOCATABILITY.md](RELOCATABILITY.md) for detailed verification of relocatability compliance.
+All resource access uses `Bundle.main` APIs with no hardcoded paths, verified via code review.
 
 ### Key Implementation Details
 
