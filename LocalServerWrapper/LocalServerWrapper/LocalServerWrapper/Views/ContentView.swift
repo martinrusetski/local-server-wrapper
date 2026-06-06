@@ -8,11 +8,13 @@
 import SwiftUI
 
 struct ContentView: View {
+    let configurationManager: ConfigurationManager
+
     var body: some View {
-        ConfigurationListView()
+        ConfigurationListView(configurationManager: configurationManager)
     }
 }
 
 #Preview {
-    ContentView()
+    ContentView(configurationManager: ConfigurationManager())
 }

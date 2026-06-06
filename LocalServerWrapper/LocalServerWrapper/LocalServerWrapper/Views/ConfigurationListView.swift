@@ -34,6 +34,9 @@ struct ConfigurationListView: View {
     /// The configuration manager instance
     @StateObject private var viewModel: ConfigurationListViewModel
     
+    /// The open window action for test run windows
+    @Environment(\.openWindow) private var openWindow
+    
     /// Search text for filtering configurations
     @State private var searchText = ""
     
@@ -51,7 +54,7 @@ struct ConfigurationListView: View {
     
     // MARK: - Initialization
     
-    init(configurationManager: ConfigurationManager = ConfigurationManager()) {
+    init(configurationManager: ConfigurationManager) {
         _viewModel = StateObject(wrappedValue: ConfigurationListViewModel(configurationManager: configurationManager))
     }
     
@@ -135,6 +138,10 @@ struct ConfigurationListView: View {
                             viewModel.generateAppBundle(for: config)
                         }
                         
+                        Button("Test Run") {
+                            viewModel.testRun(configuration: config, openWindow: openWindow)
+                        }
+                        
                         Divider()
                         
                         Button("Delete", role: .destructive) {
@@ -179,6 +186,9 @@ struct ConfigurationListView: View {
                     },
                     onGenerate: {
                         viewModel.generateAppBundle(for: config)
+                    },
+                    onTestRun: {
+                        viewModel.testRun(configuration: config, openWindow: openWindow)
                     },
                     onDelete: {
                         configurationToDelete = config
@@ -354,6 +364,7 @@ struct ConfigurationDetailView: View {
     let configuration: ServerConfiguration
     let onEdit: () -> Void
     let onGenerate: () -> Void
+    let onTestRun: () -> Void
     let onDelete: () -> Void
     
     var body: some View {
@@ -494,6 +505,16 @@ struct ConfigurationDetailView: View {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
                     
+                    Button(action: onTestRun) {
+                        HStack {
+                            Image(systemName: "play.fill")
+                            Text("Test Run")
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    
                     HStack(spacing: 12) {
                         Button(action: onEdit) {
                             HStack {
@@ -555,6 +576,6 @@ struct DetailRow: View {
 // MARK: - Preview
 
 #Preview {
-    ConfigurationListView()
+    ConfigurationListView(configurationManager: ConfigurationManager())
 }
 

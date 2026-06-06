@@ -140,6 +140,15 @@ class ConfigurationListViewModel: ObservableObject {
         generationStatus = "Cancelled"
     }
     
+    /// Open a test run window for a configuration
+    /// - Parameters:
+    ///   - configuration: The configuration to test run
+    ///   - openWindow: The SwiftUI openWindow action
+    func testRun(configuration: ServerConfiguration, openWindow: OpenWindowAction) {
+        os_log(.info, log: logger, "User initiating test run for: %{public}@", configuration.name)
+        openWindow(value: configuration.id)
+    }
+    
     // MARK: - Private Methods
     
     /// Perform the actual bundle generation

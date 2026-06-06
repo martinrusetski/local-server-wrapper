@@ -11,30 +11,40 @@ import AppKit
 @main
 struct LocalServerWrapperApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    
+    @StateObject private var configurationManager = ConfigurationManager()
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(configurationManager: configurationManager)
                 .frame(minWidth: 800, minHeight: 600)
+                .environmentObject(configurationManager)
         }
         .commands {
-            // Remove the "New Window" command since we only want one window
             CommandGroup(replacing: .newItem) { }
         }
+
+        WindowGroup(for: UUID.self) { $configId in
+            if let configId = configId,
+               let config = configurationManager.getConfiguration(id: configId) {
+                TestRunView(configuration: config)
+            } else {
+                Text("Configuration not found")
+                    .padding()
+            }
+        }
+        .defaultSize(width: 1000, height: 700)
     }
 }
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Activate the app and bring windows to front
         NSApp.activate(ignoringOtherApps: true)
-        
-        // Ensure the main window is visible
+
         if let window = NSApp.windows.first {
             window.makeKeyAndOrderFront(nil)
         }
     }
-    
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return true
     }

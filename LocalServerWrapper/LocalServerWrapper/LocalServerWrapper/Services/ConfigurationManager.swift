@@ -7,6 +7,7 @@
 
 import Foundation
 import os.log
+import Combine
 
 /// Logger for configuration management operations
 private let logger = OSLog(subsystem: "com.localserverwrapper.configmanager", category: "configuration")
@@ -39,7 +40,7 @@ protocol ConfigurationManagerProtocol {
 }
 
 /// Manages CRUD operations for server configurations
-class ConfigurationManager: ConfigurationManagerProtocol {
+class ConfigurationManager: ConfigurationManagerProtocol, ObservableObject {
     
     // MARK: - Properties
     
