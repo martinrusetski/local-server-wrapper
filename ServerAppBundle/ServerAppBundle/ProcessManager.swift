@@ -28,8 +28,9 @@ protocol ProcessManagerProtocol: ObservableObject {
     /// - Parameters:
     ///   - command: The command to execute (e.g., "/usr/bin/npm", "python3")
     ///   - arguments: The command-line arguments
+    ///   - workingDirectory: Directory where the process runs (nil for default)
     /// - Throws: ProcessError if the process fails to start
-    func start(command: String, arguments: [String]) throws
+    func start(command: String, arguments: [String], workingDirectory: String?) throws
     
     /// Gracefully terminate the process (SIGTERM)
     func terminate()
@@ -106,7 +107,7 @@ class ProcessManager: ProcessManagerProtocol {
     
     // MARK: - Public Methods
     
-    func start(command: String, arguments: [String]) throws {
+    func start(command: String, arguments: [String], workingDirectory: String? = nil) throws {
         os_log(.info, log: logger, "Starting process: %{public}@", command)
         
         // Check if already running
@@ -127,6 +128,13 @@ class ProcessManager: ProcessManagerProtocol {
         let newProcess = Process()
         newProcess.executableURL = URL(fileURLWithPath: command)
         newProcess.arguments = arguments
+        
+        // Set working directory if provided
+        if let dir = workingDirectory {
+            let dirURL = URL(fileURLWithPath: (dir as NSString).expandingTildeInPath)
+            newProcess.currentDirectoryURL = dirURL
+            os_log(.debug, log: logger, "Working directory: %{public}@", dirURL.path)
+        }
         
         // Set up environment with proper PATH
         // Include common Homebrew locations and standard system paths

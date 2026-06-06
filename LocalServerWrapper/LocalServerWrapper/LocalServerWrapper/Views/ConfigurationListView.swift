@@ -65,6 +65,17 @@ struct ConfigurationListView: View {
             sidebarContent
         } detail: {
             detailContent
+            .toolbar {
+                if let config = selectedConfiguration {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            activeSheet = .edit(config)
+                        } label: {
+                            Label("Edit", systemImage: "pencil")
+                        }
+                    }
+                }
+            }
         }
         .sheet(item: $activeSheet) { sheet in
             ConfigurationEditorView(
@@ -160,15 +171,6 @@ struct ConfigurationListView: View {
                         Label("New Configuration", systemImage: "plus")
                     }
                     .keyboardShortcut("n", modifiers: .command)
-                }
-                
-                ToolbarItem(placement: .automatic) {
-                    Button {
-                        viewModel.refresh()
-                    } label: {
-                        Label("Refresh", systemImage: "arrow.clockwise")
-                    }
-                    .keyboardShortcut("r", modifiers: .command)
                 }
             }
         }
@@ -369,88 +371,53 @@ struct ConfigurationDetailView: View {
     
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 16) {
                 // Header with icon and name
-                HStack(spacing: 16) {
+                HStack(spacing: 12) {
                     Image(systemName: "server.rack")
-                        .font(.system(size: 48))
+                        .font(.system(size: 36))
                         .foregroundColor(.blue)
                     
+                    Text(configuration.name)
+                        .font(.title)
+                        .fontWeight(.bold)
+                }
+                .padding(.bottom, 4)
+                
+                Divider()
+                
+                // Launch Script Section
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("Launch Script", systemImage: "terminal")
+                        .font(.headline)
+                    
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(configuration.name)
-                            .font(.title)
-                            .fontWeight(.bold)
+                        Text(scriptSourceLabel)
+                            .font(.callout)
+                            .foregroundColor(.primary)
                         
-                        Text("Server Configuration")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    Spacer()
-                }
-                .padding(.bottom, 8)
-                
-                Divider()
-                
-                // Command Section
-                VStack(alignment: .leading, spacing: 12) {
-                    Label("Command", systemImage: "terminal")
-                        .font(.headline)
-                    
-                    VStack(alignment: .leading, spacing: 8) {
-                        DetailRow(label: "Executable", value: configuration.command)
-                        
-                        if !configuration.arguments.isEmpty {
-                            DetailRow(label: "Arguments", value: configuration.arguments.joined(separator: " "))
-                        }
-                    }
-                    .padding(.leading, 28)
-                }
-                
-                Divider()
-                
-                // Network Section
-                VStack(alignment: .leading, spacing: 12) {
-                    Label("Network", systemImage: "network")
-                        .font(.headline)
-                    
-                    VStack(alignment: .leading, spacing: 8) {
-                        if let url = configuration.localhostURL {
-                            DetailRow(label: "Localhost URL", value: url)
-                        } else {
-                            Text("No URL configured")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .padding(.leading, 28)
-                        }
-                    }
-                    .padding(.leading, 28)
-                }
-                
-                Divider()
-                
-                // Detection Section
-                VStack(alignment: .leading, spacing: 12) {
-                    Label("Detection", systemImage: "magnifyingglass")
-                        .font(.headline)
-                    
-                    VStack(alignment: .leading, spacing: 8) {
-                        if let pattern = configuration.readySignalPattern, !pattern.isEmpty {
-                            DetailRow(label: "Ready Signal", value: pattern)
-                        } else {
-                            Text("No ready signal pattern")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .padding(.leading, 28)
+                        switch configuration.scriptSource {
+                        case .command:
+                            DetailRow(label: "Executable", value: configuration.command)
+                            if !configuration.arguments.isEmpty {
+                                DetailRow(label: "Arguments", value: configuration.arguments.joined(separator: " "))
+                            }
+                        case .file:
+                            DetailRow(label: "Script", value: configuration.command)
+                            if !configuration.arguments.isEmpty {
+                                DetailRow(label: "Arguments", value: configuration.arguments.joined(separator: " "))
+                            }
+                        case .inline:
+                            if let content = configuration.inlineScriptContent, !content.isEmpty {
+                                Text(content)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(3)
+                            }
                         }
                         
-                        if let pattern = configuration.portDetectionPattern, !pattern.isEmpty {
-                            DetailRow(label: "Port Detection", value: pattern)
-                        } else {
-                            Text("No port detection pattern")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .padding(.leading, 28)
+                        if let wd = configuration.workingDirectory, !wd.isEmpty {
+                            DetailRow(label: "Working Dir", value: wd)
                         }
                     }
                     .padding(.leading, 28)
@@ -458,43 +425,52 @@ struct ConfigurationDetailView: View {
                 
                 Divider()
                 
-                // Appearance Section
-                VStack(alignment: .leading, spacing: 12) {
-                    Label("Appearance", systemImage: "paintbrush")
-                        .font(.headline)
-                    
-                    VStack(alignment: .leading, spacing: 8) {
-                        if let iconPath = configuration.customIconPath, !iconPath.isEmpty {
-                            DetailRow(label: "Custom Icon", value: iconPath)
-                        } else {
-                            Text("Using default icon")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .padding(.leading, 28)
+                // Network & Detection
+                HStack(alignment: .top, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("Network", systemImage: "network")
+                            .font(.headline)
+                        
+                        VStack(alignment: .leading, spacing: 4) {
+                            if let url = configuration.localhostURL {
+                                Text(url)
+                                    .font(.callout)
+                                    .textSelection(.enabled)
+                            } else {
+                                Text("Not configured")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
                         }
+                        .padding(.leading, 28)
                     }
-                    .padding(.leading, 28)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("Detection", systemImage: "magnifyingglass")
+                            .font(.headline)
+                        
+                        VStack(alignment: .leading, spacing: 4) {
+                            if let pattern = configuration.readySignalPattern, !pattern.isEmpty {
+                                DetailRow(label: "Ready Signal", value: pattern)
+                            } else {
+                                Text("Not configured")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            if let pattern = configuration.portDetectionPattern, !pattern.isEmpty {
+                                DetailRow(label: "Port", value: pattern)
+                            }
+                        }
+                        .padding(.leading, 28)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 
                 Divider()
                 
-                // Metadata Section
-                VStack(alignment: .leading, spacing: 12) {
-                    Label("Metadata", systemImage: "info.circle")
-                        .font(.headline)
-                    
-                    VStack(alignment: .leading, spacing: 8) {
-                        DetailRow(label: "Created", value: formatDate(configuration.createdAt))
-                        DetailRow(label: "Updated", value: formatDate(configuration.updatedAt))
-                        DetailRow(label: "ID", value: configuration.id.uuidString)
-                    }
-                    .padding(.leading, 28)
-                }
-                
-                Spacer()
-                
-                // Action Buttons
-                VStack(spacing: 12) {
+                // Actions
+                VStack(spacing: 8) {
                     Button(action: onGenerate) {
                         HStack {
                             Image(systemName: "app.badge")
@@ -514,29 +490,19 @@ struct ConfigurationDetailView: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.large)
-                    
-                    HStack(spacing: 12) {
-                        Button(action: onEdit) {
-                            HStack {
-                                Image(systemName: "pencil")
-                                Text("Edit")
-                            }
-                            .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.large)
-                        
-                        Button(action: onDelete) {
-                            HStack {
-                                Image(systemName: "trash")
-                                Text("Delete")
-                            }
-                            .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.large)
-                        .tint(.red)
-                    }
+                }
+                
+                // Metadata
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Created \(formatDate(configuration.createdAt))")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    Text(configuration.id.uuidString)
+                        .font(.caption2)
+                        .foregroundColor(.secondary.opacity(0.7))
+                        .textSelection(.enabled)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                 }
             }
             .padding(24)
@@ -550,6 +516,14 @@ struct ConfigurationDetailView: View {
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
         return formatter.string(from: date)
+    }
+    
+    private var scriptSourceLabel: String {
+        switch configuration.scriptSource {
+        case .command: return "Manual Command"
+        case .file: return "Script File"
+        case .inline: return "Inline Script"
+        }
     }
 }
 

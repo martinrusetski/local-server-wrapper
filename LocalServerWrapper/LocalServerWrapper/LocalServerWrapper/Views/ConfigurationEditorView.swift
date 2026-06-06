@@ -7,6 +7,7 @@
 
 import SwiftUI
 import UniformTypeIdentifiers
+import AppKit
 
 /// View for creating and editing server configurations
 struct ConfigurationEditorView: View {
@@ -34,6 +35,9 @@ struct ConfigurationEditorView: View {
     @State private var readySignalPattern: String
     @State private var portDetectionPattern: String
     @State private var customIconPath: String
+    @State private var workingDirectory: String
+    @State private var scriptSource: ScriptSource
+    @State private var inlineScriptContent: String
     
     // Validation errors
     @State private var nameError: String?
@@ -45,6 +49,7 @@ struct ConfigurationEditorView: View {
     
     // UI state
     @State private var showingIconPicker = false
+    @State private var showingDirectoryPicker = false
     @State private var showingError = false
     @State private var errorMessage: String?
     
@@ -68,6 +73,9 @@ struct ConfigurationEditorView: View {
             _readySignalPattern = State(initialValue: config.readySignalPattern ?? "")
             _portDetectionPattern = State(initialValue: config.portDetectionPattern ?? "")
             _customIconPath = State(initialValue: config.customIconPath ?? "")
+            _workingDirectory = State(initialValue: config.workingDirectory ?? "")
+            _scriptSource = State(initialValue: config.scriptSource)
+            _inlineScriptContent = State(initialValue: config.inlineScriptContent ?? "")
         } else {
             _name = State(initialValue: "")
             _command = State(initialValue: "")
@@ -76,6 +84,9 @@ struct ConfigurationEditorView: View {
             _readySignalPattern = State(initialValue: "")
             _portDetectionPattern = State(initialValue: "")
             _customIconPath = State(initialValue: "")
+            _workingDirectory = State(initialValue: "")
+            _scriptSource = State(initialValue: .command)
+            _inlineScriptContent = State(initialValue: "")
         }
     }
     
@@ -84,7 +95,7 @@ struct ConfigurationEditorView: View {
     var body: some View {
         NavigationStack {
             Form {
-                // Basic Information Section
+                // Configuration Name Section
                 Section {
                     VStack(alignment: .leading, spacing: 4) {
                         TextField("Configuration Name", text: $name)
@@ -102,43 +113,36 @@ struct ConfigurationEditorView: View {
                                 .foregroundColor(.red)
                         }
                     }
-                    
-                    VStack(alignment: .leading, spacing: 4) {
-                        TextField("Command", text: $command, prompt: Text("e.g., npm, python3, /usr/local/bin/node"))
-                            .textFieldStyle(.roundedBorder)
-                            .onChange(of: command) { _ in
-                                validateCommand()
-                            }
-                            .accessibilityLabel("Command")
-                            .accessibilityHint("Enter the command to execute, such as npm or python3")
-                            .accessibilityValue(command.isEmpty ? "Empty" : command)
-                        
-                        if let error = commandError {
-                            Text(error)
-                                .font(.caption)
-                                .foregroundColor(.red)
-                        } else {
-                            Text("The command to execute (e.g., npm, python3)")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
+                } header: {
+                    Text("Configuration")
+                } footer: {
+                    Text("Name is required")
+                }
+                
+                // Launch Script Section
+                Section {
+                    Picker("Launch Method", selection: $scriptSource) {
+                        Text("Script File — pick a .sh file on disk").tag(ScriptSource.file)
+                        Text("Inline Script — type a script directly").tag(ScriptSource.inline)
+                        Text("Manual Command — specify executable + args").tag(ScriptSource.command)
                     }
+                    .pickerStyle(.radioGroup)
                     
-                    VStack(alignment: .leading, spacing: 4) {
-                        TextField("Arguments", text: $arguments, prompt: Text("e.g., run dev, -m http.server 8000"))
-                            .textFieldStyle(.roundedBorder)
-                            .accessibilityLabel("Arguments")
-                            .accessibilityHint("Enter space-separated arguments to pass to the command")
-                            .accessibilityValue(arguments.isEmpty ? "Empty" : arguments)
-                        
-                        Text("Space-separated arguments to pass to the command")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                    Divider()
+                        .padding(.vertical, 4)
+                    
+                    switch scriptSource {
+                    case .file:
+                        scriptFileFields
+                    case .inline:
+                        inlineScriptFields
+                    case .command:
+                        manualCommandFields
                     }
                 } header: {
-                    Text("Basic Information")
+                    Text("Launch Script")
                 } footer: {
-                    Text("Name and command are required fields")
+                    launchScriptFooter
                 }
                 
                 // Server Configuration Section
@@ -307,18 +311,189 @@ struct ConfigurationEditorView: View {
         .frame(minWidth: 600, minHeight: 500)
     }
     
+    // MARK: - Launch Script Subviews
+    
+    @ViewBuilder
+    private var scriptFileFields: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    TextField("Script File", text: .constant(command.isEmpty ? "" : command))
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(true)
+                    
+                    if command.isEmpty {
+                        Text("Choose a shell script to run")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    } else {
+                        Text(FileManager.default.displayName(atPath: command))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    if let error = commandError {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    }
+                }
+                
+                Button("Choose...") {
+                    chooseScriptFile()
+                }
+                .buttonStyle(.bordered)
+                
+                if !command.isEmpty {
+                    Button {
+                        command = ""
+                        workingDirectory = ""
+                        commandError = nil
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            
+            VStack(alignment: .leading, spacing: 4) {
+                TextField("Arguments", text: $arguments, prompt: Text("Extra arguments (optional)"))
+                    .textFieldStyle(.roundedBorder)
+                Text("Additional arguments appended after the script path")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        workingDirectoryField
+    }
+    
+    @ViewBuilder
+    private var inlineScriptFields: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Script Content")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                
+                TextEditor(text: $inlineScriptContent)
+                    .font(.system(.body, design: .monospaced))
+                    .frame(minHeight: 120)
+                    .border(Color.secondary.opacity(0.3))
+                    .cornerRadius(4)
+                
+                Text("Enter the shell script content. It will be saved and executed by the wrapper.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        workingDirectoryField
+    }
+    
+    @ViewBuilder
+    private var manualCommandFields: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                TextField("Command", text: $command, prompt: Text("e.g., npm, python3, /usr/local/bin/node"))
+                    .textFieldStyle(.roundedBorder)
+                    .onChange(of: command) { _ in
+                        validateCommand()
+                    }
+                
+                if let error = commandError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                } else {
+                    Text("The executable to run")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            
+            VStack(alignment: .leading, spacing: 4) {
+                TextField("Arguments", text: $arguments, prompt: Text("e.g., run dev, -m http.server 8000"))
+                    .textFieldStyle(.roundedBorder)
+                Text("Space-separated arguments to pass to the command")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        workingDirectoryField
+    }
+    
+    private var workingDirectoryField: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                TextField("Working Directory", text: $workingDirectory, prompt: Text("Optional (e.g., ~/Library/MyServer)"))
+                    .textFieldStyle(.roundedBorder)
+                
+                if !workingDirectory.isEmpty {
+                    Text(workingDirectory)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                } else if scriptSource == .file {
+                    Text("Auto-detected from the script file location")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("The directory where the server process will run")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            
+            Button("Choose...") {
+                chooseWorkingDirectory()
+            }
+            .buttonStyle(.bordered)
+            
+            if !workingDirectory.isEmpty {
+                Button {
+                    workingDirectory = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+    
+    private var launchScriptFooter: Text {
+        switch scriptSource {
+        case .file:
+            return Text("Pick a shell script. The working directory is automatically set to the script's location.")
+        case .inline:
+            return Text("Enter your script content and specify a working directory below.")
+        case .command:
+            return Text("Manually specify the executable and its arguments.")
+        }
+    }
+    
     // MARK: - Computed Properties
     
     /// Whether the form is valid and can be saved
+    /// Whether the form is valid and can be saved
     private var isValid: Bool {
-        return nameError == nil &&
-               commandError == nil &&
-               urlError == nil &&
-               readySignalError == nil &&
-               portPatternError == nil &&
-               iconError == nil &&
-               !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-               !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let nameValid = !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && nameError == nil
+        let urlValid = urlError == nil
+        let signalValid = readySignalError == nil && portPatternError == nil
+        let iconValid = iconError == nil
+        
+        switch scriptSource {
+        case .file:
+            return nameValid && !command.isEmpty && commandError == nil && urlValid && signalValid && iconValid
+        case .inline:
+            let contentValid = !inlineScriptContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            return nameValid && contentValid && urlValid && signalValid && iconValid
+        case .command:
+            let cmdValid = !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && commandError == nil
+            return nameValid && cmdValid && urlValid && signalValid && iconValid
+        }
     }
     
     // MARK: - Validation Methods
@@ -476,6 +651,35 @@ struct ConfigurationEditorView: View {
         }
     }
     
+    private func chooseWorkingDirectory() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Select"
+        panel.message = "Choose the working directory for this server"
+        
+        if panel.runModal() == .OK, let url = panel.url {
+            workingDirectory = url.path
+        }
+    }
+    
+    private func chooseScriptFile() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.shellScript, .unixExecutable]
+        panel.prompt = "Select"
+        panel.message = "Choose a shell script to run"
+        
+        if panel.runModal() == .OK, let url = panel.url {
+            command = url.path
+            workingDirectory = url.deletingLastPathComponent().path
+            commandError = nil
+        }
+    }
+    
     private func saveConfiguration() {
         // Validate all fields one more time
         validateName()
@@ -499,6 +703,8 @@ struct ConfigurationEditorView: View {
             .filter { !$0.isEmpty }
         
         let trimmedIconPath = customIconPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedWorkingDir = workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedInlineContent = inlineScriptContent.trimmingCharacters(in: .whitespacesAndNewlines)
         
         // Create or update configuration
         var config: ServerConfiguration
@@ -514,7 +720,10 @@ struct ConfigurationEditorView: View {
                 localhostURL: localhostURL.isEmpty ? nil : localhostURL.trimmingCharacters(in: .whitespacesAndNewlines),
                 readySignalPattern: readySignalPattern.isEmpty ? nil : readySignalPattern.trimmingCharacters(in: .whitespacesAndNewlines),
                 portDetectionPattern: portDetectionPattern.isEmpty ? nil : portDetectionPattern.trimmingCharacters(in: .whitespacesAndNewlines),
-                customIconPath: nil // set below after potential storage
+                customIconPath: nil, // set below after potential storage
+                workingDirectory: trimmedWorkingDir.isEmpty ? nil : trimmedWorkingDir,
+                scriptSource: scriptSource,
+                inlineScriptContent: trimmedInlineContent.isEmpty ? nil : trimmedInlineContent
             )
             config.createdAt = existing.createdAt
             config.touch()
@@ -526,7 +735,10 @@ struct ConfigurationEditorView: View {
                 localhostURL: localhostURL.isEmpty ? nil : localhostURL.trimmingCharacters(in: .whitespacesAndNewlines),
                 readySignalPattern: readySignalPattern.isEmpty ? nil : readySignalPattern.trimmingCharacters(in: .whitespacesAndNewlines),
                 portDetectionPattern: portDetectionPattern.isEmpty ? nil : portDetectionPattern.trimmingCharacters(in: .whitespacesAndNewlines),
-                customIconPath: nil // set below after potential storage
+                customIconPath: nil, // set below after potential storage
+                workingDirectory: trimmedWorkingDir.isEmpty ? nil : trimmedWorkingDir,
+                scriptSource: scriptSource,
+                inlineScriptContent: trimmedInlineContent.isEmpty ? nil : trimmedInlineContent
             )
             configId = config.id
         }

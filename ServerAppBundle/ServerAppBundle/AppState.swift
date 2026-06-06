@@ -121,9 +121,11 @@ class AppState: ObservableObject {
         os_log(.info, log: logger, "Starting server")
         
         do {
+            let resolved = ScriptResolver.resolve(configuration)
             try processManager.start(
-                command: configuration.command,
-                arguments: configuration.arguments
+                command: resolved.command,
+                arguments: resolved.arguments,
+                workingDirectory: configuration.workingDirectory
             )
             
             // Start timeout timer if ready signal pattern is configured

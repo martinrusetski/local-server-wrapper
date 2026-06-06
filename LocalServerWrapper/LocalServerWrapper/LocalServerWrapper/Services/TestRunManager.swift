@@ -48,8 +48,13 @@ class TestRunManager: ObservableObject {
         guard !isRunning else { return }
 
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [configuration.command] + configuration.arguments
+        let resolved = ScriptResolver.resolve(configuration)
+        process.executableURL = URL(fileURLWithPath: resolved.command)
+        process.arguments = resolved.arguments
+
+        if let dir = configuration.workingDirectory, !dir.isEmpty {
+            process.currentDirectoryURL = URL(fileURLWithPath: (dir as NSString).expandingTildeInPath)
+        }
 
         var environment = ProcessInfo.processInfo.environment
         let paths = [
@@ -108,7 +113,7 @@ class TestRunManager: ObservableObject {
             self.isRunning = true
             self.exitCode = nil
 
-            let cmdString = ([configuration.command] + configuration.arguments).joined(separator: " ")
+            let cmdString = ([resolved.command] + resolved.arguments).joined(separator: " ")
             appendOutput("$ \(cmdString)\n\n")
         } catch {
             cleanup()

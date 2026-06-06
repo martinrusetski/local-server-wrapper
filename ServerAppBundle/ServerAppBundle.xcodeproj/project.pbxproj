@@ -19,6 +19,7 @@
 		AA0000350000000000000001 /* WebViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000360000000000000001 /* WebViewModel.swift */; };
 		AA0000370000000000000001 /* WebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000380000000000000001 /* WebView.swift */; };
 		AA0000390000000000000001 /* BrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000400000000000000001 /* BrowserView.swift */; };
+		AA0000410000000000000001 /* ScriptResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000420000000000000001 /* ScriptResolver.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -36,6 +37,7 @@
 		AA0000360000000000000001 /* WebViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebViewModel.swift; sourceTree = "<group>"; };
 		AA0000380000000000000001 /* WebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebView.swift; sourceTree = "<group>"; };
 		AA0000400000000000000001 /* BrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserView.swift; sourceTree = "<group>"; };
+		AA0000420000000000000001 /* ScriptResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScriptResolver.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -71,6 +73,7 @@
 				AA0000400000000000000001 /* BrowserView.swift */,
 				AA0000080000000000000001 /* ServerConfiguration.swift */,
 				AA0000100000000000000001 /* ConfigurationLoader.swift */,
+				AA0000420000000000000001 /* ScriptResolver.swift */,
 				AA0000060000000000000001 /* Assets.xcassets */,
 				AA0000140000000000000001 /* ServerAppBundle.entitlements */,
 			);
@@ -165,6 +168,7 @@
 				AA0000350000000000000001 /* WebViewModel.swift in Sources */,
 				AA0000370000000000000001 /* WebView.swift in Sources */,
 				AA0000390000000000000001 /* BrowserView.swift in Sources */,
+				AA0000410000000000000001 /* ScriptResolver.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
