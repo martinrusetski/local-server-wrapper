@@ -70,12 +70,15 @@ class ProcessManager: ProcessManagerProtocol {
     @Published private(set) var isRunning: Bool = false
     @Published private(set) var exitCode: Int32?
     @Published private(set) var output: String = ""
+    @Published private(set) var isAutoAnswering: Bool = false
     
     // MARK: - Private Properties
     
     private var process: Process?
     private var outputPipe: Pipe?
     private var errorPipe: Pipe?
+    private var inputPipe: Pipe?
+    private var autoAnswerTimer: Timer?
     private var terminationObserver: NSObjectProtocol?
     private var cancellables = Set<AnyCancellable>()
     
@@ -98,6 +101,7 @@ class ProcessManager: ProcessManagerProtocol {
         // Close pipes
         try? outputPipe?.fileHandleForReading.close()
         try? errorPipe?.fileHandleForReading.close()
+        try? inputPipe?.fileHandleForWriting.close()
     }
     
     // MARK: - Public Methods
@@ -149,6 +153,11 @@ class ProcessManager: ProcessManagerProtocol {
         newProcess.standardOutput = stdoutPipe
         newProcess.standardError = stderrPipe
         
+        // Set up stdin pipe for interactive input
+        let stdinPipe = Pipe()
+        newProcess.standardInput = stdinPipe
+        self.inputPipe = stdinPipe
+        
         // Store pipes for cleanup
         self.outputPipe = stdoutPipe
         self.errorPipe = stderrPipe
@@ -198,6 +207,9 @@ class ProcessManager: ProcessManagerProtocol {
             
             os_log(.info, log: logger, "Process started successfully (PID: %d)", newProcess.processIdentifier)
             
+            // Start auto-answering to handle startup prompts
+            startAutoAnswering()
+            
             // Add initial output message
             let commandString = ([command] + arguments).joined(separator: " ")
             appendOutput("Starting process: \(commandString)\n")
@@ -237,6 +249,31 @@ class ProcessManager: ProcessManagerProtocol {
         isRunning = false
     }
     
+    func writeInput(_ text: String) {
+        guard let pipe = inputPipe, isRunning, !text.isEmpty else { return }
+        if let data = (text + "\n").data(using: .utf8) {
+            pipe.fileHandleForWriting.write(data)
+        }
+    }
+    
+    func startAutoAnswering() {
+        guard !isAutoAnswering else { return }
+        isAutoAnswering = true
+        
+        autoAnswerTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
+            guard let self = self, self.isAutoAnswering, self.isRunning else { return }
+            if let pipe = self.inputPipe, let data = "\n".data(using: .utf8) {
+                pipe.fileHandleForWriting.write(data)
+            }
+        }
+    }
+    
+    func stopAutoAnswering() {
+        isAutoAnswering = false
+        autoAnswerTimer?.invalidate()
+        autoAnswerTimer = nil
+    }
+    
     // MARK: - Private Methods
     
     private func appendOutput(_ text: String) {
@@ -267,6 +304,9 @@ class ProcessManager: ProcessManagerProtocol {
     }
     
     private func cleanup() {
+        // Stop auto-answering
+        stopAutoAnswering()
+        
         // Remove termination observer
         if let observer = terminationObserver {
             NotificationCenter.default.removeObserver(observer)
@@ -280,9 +320,11 @@ class ProcessManager: ProcessManagerProtocol {
         // Close pipes
         try? outputPipe?.fileHandleForReading.close()
         try? errorPipe?.fileHandleForReading.close()
+        try? inputPipe?.fileHandleForWriting.close()
         
         outputPipe = nil
         errorPipe = nil
+        inputPipe = nil
         
         // Clear process reference
         process = nil

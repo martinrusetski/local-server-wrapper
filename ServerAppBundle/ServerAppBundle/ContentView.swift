@@ -10,6 +10,7 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
     @Environment(\.dismiss) private var dismiss
+    @State private var sidebarWidth: CGFloat = 650
     
     var body: some View {
         HStack(spacing: 0) {
@@ -44,9 +45,26 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             
-            // Sidebar - Terminal (collapsible, on the right)
+            // Sidebar - Terminal (collapsible, resizable, on the right)
             if appState.isSidebarVisible {
-                Divider()
+                // Drag handle for resizing
+                Rectangle()
+                    .fill(Color.secondary.opacity(0.2))
+                    .frame(width: 5)
+                    .gesture(
+                        DragGesture()
+                            .onChanged { value in
+                                let newWidth = max(200, min(800, sidebarWidth - value.translation.width))
+                                sidebarWidth = newWidth
+                            }
+                    )
+                    .onHover { inside in
+                        if inside {
+                            NSCursor.resizeLeftRight.push()
+                        } else {
+                            NSCursor.pop()
+                        }
+                    }
                 
                 VStack(spacing: 0) {
                     // Sidebar header with restart button
@@ -73,7 +91,7 @@ struct ContentView: View {
                     
                     TerminalView(processManager: appState.processManager)
                 }
-                .frame(width: 350)
+                .frame(width: sidebarWidth)
                 .accessibilityLabel("Terminal Output")
                 .accessibilityHint("Shows server process output and logs")
             }
@@ -141,7 +159,7 @@ struct ContentView: View {
                             appState.toggleSidebar()
                         }
                     }) {
-                        Label("Toggle Terminal", systemImage: "sidebar.right")
+                        Label("Toggle Terminal", systemImage: "apple.terminal")
                     }
                     .help("Show/hide terminal output")
                     .keyboardShortcut("t", modifiers: [.command, .shift])
