@@ -27,6 +27,10 @@ class AppState: ObservableObject {
     /// Web view model for browser control
     let webViewModel: WebViewModel
     
+    /// Whether the toolbar is hidden (showing minimal window chrome)
+    /// Persisted to UserDefaults so preference survives app restarts
+    @Published var isToolbarHidden: Bool
+    
     /// Whether to show the close confirmation dialog
     @Published var showCloseConfirmation: Bool = false
     
@@ -57,6 +61,9 @@ class AppState: ObservableObject {
         os_log(.info, log: logger, "Initializing app state for configuration: %{public}@", configuration.name)
         
         self.configuration = configuration
+        
+        // Restore persisted preferences
+        self.isToolbarHidden = UserDefaults.standard.bool(forKey: "isToolbarHidden")
         
         // Initialize ProcessManager
         self.processManager = ProcessManager()
@@ -112,6 +119,13 @@ class AppState: ObservableObject {
                 // We could add additional handling here if needed
                 self?.cancelTimeoutTimer()
             }
+            .store(in: &cancellables)
+        
+        // Persist toolbar visibility preference to UserDefaults
+        $isToolbarHidden
+            .dropFirst()
+            .removeDuplicates()
+            .sink { UserDefaults.standard.set($0, forKey: "isToolbarHidden") }
             .store(in: &cancellables)
     }
     

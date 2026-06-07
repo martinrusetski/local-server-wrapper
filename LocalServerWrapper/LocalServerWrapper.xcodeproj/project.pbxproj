@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1F61C87E2FD4D53200E38235 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 1F61C87D2FD4D53200E38235 /* AppIcon.icon */; };
 		1F9812E42FA51118003032DD /* ServerAppBundle.app in Resources */ = {isa = PBXBuildFile; fileRef = 1F9812E32FA51118003032DD /* ServerAppBundle.app */; };
 /* End PBXBuildFile section */
 
@@ -28,6 +29,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		1F61C87D2FD4D53200E38235 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		1F8D25B82FA49243001DCFE4 /* LocalServerWrapper.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LocalServerWrapper.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1F8D25C52FA49244001DCFE4 /* LocalServerWrapperTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LocalServerWrapperTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		1F8D25CF2FA49244001DCFE4 /* LocalServerWrapperUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LocalServerWrapperUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -80,6 +82,7 @@
 		1F8D25AF2FA49243001DCFE4 = {
 			isa = PBXGroup;
 			children = (
+				1F61C87D2FD4D53200E38235 /* AppIcon.icon */,
 				1F9812E32FA51118003032DD /* ServerAppBundle.app */,
 				1F8D25BA2FA49243001DCFE4 /* LocalServerWrapper */,
 				1F8D25C82FA49244001DCFE4 /* LocalServerWrapperTests */,
@@ -219,6 +222,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				1F9812E42FA51118003032DD /* ServerAppBundle.app in Resources */,
+				1F61C87E2FD4D53200E38235 /* AppIcon.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -401,6 +405,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -426,7 +431,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MACOSX_DEPLOYMENT_TARGET = 13.5;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.localserverwrapper;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -445,6 +450,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -470,7 +476,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MACOSX_DEPLOYMENT_TARGET = 13.5;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.localserverwrapper;
 				PRODUCT_NAME = "$(TARGET_NAME)";

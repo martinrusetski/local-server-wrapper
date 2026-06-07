@@ -10,6 +10,8 @@ import SwiftUI
 import AppKit
 import Combine
 import UniformTypeIdentifiers
+import CryptoKit
+import UserNotifications
 import os.log
 
 /// Logger for view model operations
@@ -95,16 +97,30 @@ class ConfigurationListViewModel: ObservableObject {
         }
     }
     
-    /// Generate an app bundle for a configuration
+    /// Directory where run bundles are stored in the app library
+    private static var bundlesDirectory: URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return appSupport.appendingPathComponent("LocalServerWrapper/Bundles")
+    }
+    
+    /// Ensure the bundles directory exists
+    private func ensureBundlesDirectory() throws {
+        let dir = Self.bundlesDirectory
+        if !FileManager.default.fileExists(atPath: dir.path) {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+    }
+    
+    /// Generate an app bundle and save it to a user-chosen location (default: /Applications)
     /// - Parameter configuration: The configuration to generate a bundle for
     func generateAppBundle(for configuration: ServerConfiguration) {
-        os_log(.info, log: logger, "User initiating bundle generation for: %{public}@", configuration.name)
+        os_log(.info, log: logger, "User initiating standalone app bundle generation for: %{public}@", configuration.name)
         
-        // Show file picker to select output location
         let savePanel = NSSavePanel()
-        savePanel.title = "Save App Bundle"
-        savePanel.message = "Choose where to save the generated app bundle"
+        savePanel.title = "Use as Standalone App"
+        savePanel.message = "Choose where to save the standalone app bundle"
         savePanel.nameFieldStringValue = "\(configuration.name).app"
+        savePanel.directoryURL = URL(fileURLWithPath: "/Applications")
         savePanel.canCreateDirectories = true
         savePanel.showsTagField = false
         savePanel.allowedContentTypes = [.applicationBundle]
@@ -114,18 +130,20 @@ class ConfigurationListViewModel: ObservableObject {
             
             if response == .OK, let outputURL = savePanel.url {
                 os_log(.debug, log: logger, "User selected output location: %{public}@", outputURL.path)
-                // Get the directory (remove the .app filename)
                 let outputDirectory = outputURL.deletingLastPathComponent()
                 
-                // Start generation
                 self.generationTask = Task {
                     await self.performGeneration(
                         configuration: configuration,
-                        outputDirectory: outputDirectory
+                        outputDirectory: outputDirectory,
+                        onSuccess: { bundleURL in
+                            self.sendSuccessNotification(configurationName: configuration.name)
+                            NSWorkspace.shared.selectFile(bundleURL.path, inFileViewerRootedAtPath: "")
+                        }
                     )
                 }
             } else {
-                os_log(.info, log: logger, "User cancelled bundle generation")
+                os_log(.info, log: logger, "User cancelled standalone app bundle generation")
             }
         }
     }
@@ -140,24 +158,105 @@ class ConfigurationListViewModel: ObservableObject {
         generationStatus = "Cancelled"
     }
     
-    /// Open a test run window for a configuration
-    /// - Parameters:
-    ///   - configuration: The configuration to test run
-    ///   - openWindow: The SwiftUI openWindow action
-    func testRun(configuration: ServerConfiguration, openWindow: OpenWindowAction) {
-        os_log(.info, log: logger, "User initiating test run for: %{public}@", configuration.name)
-        openWindow(value: configuration.id)
+    /// Run a configuration by generating an app bundle in the library and launching it.
+    /// Skips regeneration if the configuration hasn't changed since the last run.
+    /// - Parameter configuration: The configuration to run
+    func run(configuration: ServerConfiguration) {
+        os_log(.info, log: logger, "User initiating run for: %{public}@", configuration.name)
+        
+        let currentHash = configHash(configuration)
+        let storedHash = UserDefaults.standard.string(forKey: hashKey(for: configuration.id))
+        let bundleURL = Self.bundlesDirectory.appendingPathComponent("\(sanitizeForBundleName(configuration.name)).app")
+        
+        if currentHash == storedHash, FileManager.default.fileExists(atPath: bundleURL.path) {
+            os_log(.info, log: logger, "Configuration unchanged, launching existing bundle: %{public}@", bundleURL.path)
+            let config = NSWorkspace.OpenConfiguration()
+            NSWorkspace.shared.openApplication(at: bundleURL, configuration: config) { _, error in
+                if let error = error {
+                    os_log(.error, log: logger, "Failed to launch bundle: %{public}@", error.localizedDescription)
+                }
+            }
+            return
+        }
+        
+        do {
+            try ensureBundlesDirectory()
+        } catch {
+            os_log(.error, log: logger, "Failed to create bundles directory: %{public}@", error.localizedDescription)
+            errorMessage = "Failed to create bundles directory: \(error.localizedDescription)"
+            showingError = true
+            return
+        }
+        
+        generationTask = Task {
+            await performGeneration(
+                configuration: configuration,
+                outputDirectory: Self.bundlesDirectory,
+                onSuccess: { bundleURL in
+                    UserDefaults.standard.set(currentHash, forKey: self.hashKey(for: configuration.id))
+                    self.sendSuccessNotification(configurationName: configuration.name)
+                    let config = NSWorkspace.OpenConfiguration()
+                    NSWorkspace.shared.openApplication(at: bundleURL, configuration: config) { _, error in
+                        if let error = error {
+                            os_log(.error, log: logger, "Failed to launch bundle: %{public}@", error.localizedDescription)
+                        }
+                    }
+                }
+            )
+        }
     }
     
     // MARK: - Private Methods
+    
+    /// Compute a SHA256 hash of a configuration to detect changes
+    private func configHash(_ config: ServerConfiguration) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(config) else { return "" }
+        return SHA256.hash(data: data).compactMap { String(format: "%02x", $0) }.joined()
+    }
+    
+    /// UserDefaults key for storing the last-generated hash of a configuration
+    private func hashKey(for configId: UUID) -> String {
+        "generated_config_hash_\(configId.uuidString)"
+    }
+    
+    /// Sanitize a name for use as a bundle filename
+    private func sanitizeForBundleName(_ name: String) -> String {
+        let invalidCharacters = CharacterSet(charactersIn: ":/\\?%*|\"<>")
+        let components = name.components(separatedBy: invalidCharacters)
+        let sanitized = components.joined(separator: "_")
+        let trimmed = sanitized.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? "ServerApp" : trimmed
+    }
+    
+    /// Send a system notification for successful bundle generation
+    private func sendSuccessNotification(configurationName: String) {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
+            guard granted else { return }
+            let content = UNMutableNotificationContent()
+            content.title = "Bundle Ready"
+            content.body = "\"\(configurationName)\" app bundle generated successfully."
+            content.sound = .default
+            let request = UNNotificationRequest(
+                identifier: UUID().uuidString,
+                content: content,
+                trigger: nil
+            )
+            UNUserNotificationCenter.current().add(request)
+        }
+    }
     
     /// Perform the actual bundle generation
     /// - Parameters:
     ///   - configuration: The configuration to generate a bundle for
     ///   - outputDirectory: The directory where the bundle should be created
+    ///   - onSuccess: Optional closure called with the generated bundle URL on success
     private func performGeneration(
         configuration: ServerConfiguration,
-        outputDirectory: URL
+        outputDirectory: URL,
+        onSuccess: ((URL) -> Void)? = nil
     ) async {
         os_log(.info, log: logger, "Starting bundle generation for: %{public}@", configuration.name)
         
@@ -182,12 +281,9 @@ class ConfigurationListViewModel: ObservableObject {
             // Success!
             isGenerating = false
             generationTask = nil
-            successMessage = "App bundle generated successfully at:\n\(bundleURL.path)"
-            showingSuccess = true
             os_log(.info, log: logger, "Bundle generation completed successfully: %{public}@", bundleURL.path)
-            
-            // Optionally reveal in Finder
-            NSWorkspace.shared.selectFile(bundleURL.path, inFileViewerRootedAtPath: "")
+
+            onSuccess?(bundleURL)
             
         } catch is CancellationError {
             // Handle cancellation

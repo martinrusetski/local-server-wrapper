@@ -35,6 +35,42 @@ struct ServerAppBundleApp: App {
         .commands {
             // Remove "New Window" command since we only want one window per bundle
             CommandGroup(replacing: .newItem) { }
+            
+            // View menu with toolbar and navigation controls
+            CommandMenu("View") {
+                Toggle("Hide Toolbar", isOn: $appState.isToolbarHidden)
+                    .keyboardShortcut("t", modifiers: [.command, .option])
+                
+                Divider()
+                
+                Button("Back") {
+                    appState.webViewModel.goBack()
+                }
+                .keyboardShortcut("[", modifiers: .command)
+                .disabled(!appState.readinessDetector.isReady || !appState.webViewModel.canGoBack)
+                
+                Button("Forward") {
+                    appState.webViewModel.goForward()
+                }
+                .keyboardShortcut("]", modifiers: .command)
+                .disabled(!appState.readinessDetector.isReady || !appState.webViewModel.canGoForward)
+                
+                Button("Reload") {
+                    appState.webViewModel.reload()
+                }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
+                .disabled(!appState.readinessDetector.isReady)
+                
+                Divider()
+                
+                Button("Show Terminal") {
+                    withAnimation {
+                        appState.toggleSidebar()
+                    }
+                }
+                .keyboardShortcut("t", modifiers: [.command, .shift])
+                .disabled(!appState.readinessDetector.isReady)
+            }
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)

@@ -22,17 +22,6 @@ struct LocalServerWrapperApp: App {
         .commands {
             CommandGroup(replacing: .newItem) { }
         }
-
-        WindowGroup(for: UUID.self) { $configId in
-            if let configId = configId,
-               let config = configurationManager.getConfiguration(id: configId) {
-                TestRunView(configuration: config)
-            } else {
-                Text("Configuration not found")
-                    .padding()
-            }
-        }
-        .defaultSize(width: 1000, height: 700)
     }
 }
 

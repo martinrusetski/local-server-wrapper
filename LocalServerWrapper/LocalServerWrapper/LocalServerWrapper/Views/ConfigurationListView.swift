@@ -34,9 +34,6 @@ struct ConfigurationListView: View {
     /// The configuration manager instance
     @StateObject private var viewModel: ConfigurationListViewModel
     
-    /// The open window action for test run windows
-    @Environment(\.openWindow) private var openWindow
-    
     /// Search text for filtering configurations
     @State private var searchText = ""
     
@@ -145,12 +142,12 @@ struct ConfigurationListView: View {
                             activeSheet = .edit(config)
                         }
                         
-                        Button("Generate App Bundle") {
-                            viewModel.generateAppBundle(for: config)
+                        Button("Run") {
+                            viewModel.run(configuration: config)
                         }
                         
-                        Button("Test Run") {
-                            viewModel.testRun(configuration: config, openWindow: openWindow)
+                        Button("Use as standalone app...") {
+                            viewModel.generateAppBundle(for: config)
                         }
                         
                         Divider()
@@ -189,8 +186,8 @@ struct ConfigurationListView: View {
                     onGenerate: {
                         viewModel.generateAppBundle(for: config)
                     },
-                    onTestRun: {
-                        viewModel.testRun(configuration: config, openWindow: openWindow)
+                    onRun: {
+                        viewModel.run(configuration: config)
                     },
                     onDelete: {
                         configurationToDelete = config
@@ -366,7 +363,7 @@ struct ConfigurationDetailView: View {
     let configuration: ServerConfiguration
     let onEdit: () -> Void
     let onGenerate: () -> Void
-    let onTestRun: () -> Void
+    let onRun: () -> Void
     let onDelete: () -> Void
     
     var body: some View {
@@ -471,20 +468,20 @@ struct ConfigurationDetailView: View {
                 
                 // Actions
                 VStack(spacing: 8) {
-                    Button(action: onGenerate) {
+                    Button(action: onRun) {
                         HStack {
-                            Image(systemName: "app.badge")
-                            Text("Generate App Bundle")
+                            Image(systemName: "play.fill")
+                            Text("Run")
                         }
                         .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
                     
-                    Button(action: onTestRun) {
+                    Button(action: onGenerate) {
                         HStack {
-                            Image(systemName: "play.fill")
-                            Text("Test Run")
+                            Image(systemName: "square.and.arrow.up")
+                            Text("Use as standalone app...")
                         }
                         .frame(maxWidth: .infinity)
                     }

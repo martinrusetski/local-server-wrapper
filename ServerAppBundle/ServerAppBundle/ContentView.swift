@@ -6,11 +6,13 @@
 //
 
 import SwiftUI
+import AppKit
 
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
     @Environment(\.dismiss) private var dismiss
     @State private var sidebarWidth: CGFloat = 650
+    @State private var hostingWindow: NSWindow?
     
     var body: some View {
         HStack(spacing: 0) {
@@ -103,21 +105,18 @@ struct ContentView: View {
                     Button(action: { appState.webViewModel.goBack() }) {
                         Label("Back", systemImage: "chevron.left")
                     }
-                    .keyboardShortcut("[", modifiers: .command)
                     .disabled(!appState.webViewModel.canGoBack)
                     .help("Go Back")
                     
                     Button(action: { appState.webViewModel.goForward() }) {
                         Label("Forward", systemImage: "chevron.right")
                     }
-                    .keyboardShortcut("]", modifiers: .command)
                     .disabled(!appState.webViewModel.canGoForward)
                     .help("Go Forward")
                     
                     Button(action: { appState.webViewModel.reload() }) {
                         Label("Reload", systemImage: "arrow.clockwise")
                     }
-                    .keyboardShortcut("r", modifiers: [.command, .shift])
                     .help("Reload Page")
                 }
             }
@@ -162,13 +161,23 @@ struct ContentView: View {
                         Label("Toggle Terminal", systemImage: "apple.terminal")
                     }
                     .help("Show/hide terminal output")
-                    .keyboardShortcut("t", modifiers: [.command, .shift])
                 }
             }
         }
+        .background(WindowAccessor(window: $hostingWindow))
         .onAppear {
             // Start the server process when the view appears
             appState.startServer()
+            // Apply initial window appearance state
+            DispatchQueue.main.async {
+                guard let window = hostingWindow else { return }
+                window.title = appState.configuration.name
+                applyToolbarState(to: window, hidden: appState.isToolbarHidden)
+            }
+        }
+        .onChange(of: appState.isToolbarHidden) { hidden in
+            guard let window = hostingWindow else { return }
+            applyToolbarState(to: window, hidden: hidden)
         }
         .alert("Server is still running", isPresented: $appState.showCloseConfirmation) {
             Button("Cancel", role: .cancel) {
@@ -208,6 +217,17 @@ struct ContentView: View {
             Text("The server has been running for 30 seconds but the ready signal has not been detected. You can keep waiting or manually open the browser.")
         }
     }
+    
+    private func applyToolbarState(to window: NSWindow, hidden: Bool) {
+        window.toolbar?.isVisible = !hidden
+        if hidden {
+            window.titlebarAppearsTransparent = false
+            window.titleVisibility = .visible
+        } else {
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .hidden
+        }
+    }
 }
 
 #Preview {
@@ -218,4 +238,18 @@ struct ContentView: View {
             arguments: ["run", "dev"],
             localhostURL: "http://localhost:3000"
         )))
+}
+
+private struct WindowAccessor: NSViewRepresentable {
+    @Binding var window: NSWindow?
+    
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            window = view.window
+        }
+        return view
+    }
+    
+    func updateNSView(_ nsView: NSView, context: Context) {}
 }
