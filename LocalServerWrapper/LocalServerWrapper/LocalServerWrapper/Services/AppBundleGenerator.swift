@@ -104,10 +104,12 @@ class AppBundleGenerator: AppBundleGeneratorProtocol {
         try Task.checkCancellation()
         
         // Report progress: Code signing (90-100%)
-        progressHandler?(0.9, "Finalizing bundle...")
-        // Note: Skipping code signing for now - bundles can be opened with right-click > Open
-        // or by running: xattr -d com.apple.quarantine /path/to/bundle.app
-        os_log(.info, log: logger, "Skipping code signing (bundle can be opened with right-click > Open)")
+        progressHandler?(0.9, "Signing bundle...")
+        do {
+            try signAdHoc(bundleURL)
+        } catch {
+            os_log(.error, log: logger, "Ad-hoc signing failed: %{public}@, bundle still functional without Keychain", error.localizedDescription)
+        }
         
         // Report progress: Complete (100%)
         progressHandler?(1.0, "Bundle generation complete")
@@ -286,6 +288,38 @@ class AppBundleGenerator: AppBundleGeneratorProtocol {
         // Trim whitespace and ensure it's not empty
         let trimmed = sanitized.trimmingCharacters(in: .whitespaces)
         return trimmed.isEmpty ? "ServerApp" : trimmed
+    }
+    
+    /// Sign the app bundle with a simple ad-hoc signature (no entitlements)
+    /// This enables Keychain access for the generated bundle
+    /// - Parameter bundleURL: The URL of the bundle to sign
+    /// - Throws: GenerationError.signingFailed if signing fails
+    private func signAdHoc(_ bundleURL: URL) throws {
+        os_log(.info, log: logger, "Signing bundle with ad-hoc signature")
+        
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        process.arguments = ["--force", "--sign", "-", bundleURL.path]
+        
+        let errorPipe = Pipe()
+        process.standardError = errorPipe
+        
+        do {
+            try process.run()
+            process.waitUntilExit()
+            
+            if process.terminationStatus != 0 {
+                let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+                let errorOutput = String(data: errorData, encoding: .utf8) ?? "Unknown error"
+                throw GenerationError.signingFailed(errorOutput)
+            }
+            
+            os_log(.info, log: logger, "Bundle signed successfully")
+        } catch let error as GenerationError {
+            throw error
+        } catch {
+            throw GenerationError.signingFailed(error.localizedDescription)
+        }
     }
     
     /// Sign the app bundle with entitlements using codesign

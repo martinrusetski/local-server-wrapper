@@ -46,6 +46,18 @@ class AppState: ObservableObject {
     /// Whether the sidebar is visible
     @Published var isSidebarVisible: Bool = false
     
+    /// Credential detector for watching login form submissions
+    let credentialDetector: CredentialDetector
+    
+    /// Saved credentials loaded from Keychain
+    @Published var credentials: [Credential] = []
+    
+    /// Pending credential to offer saving
+    @Published var pendingCredential: Credential?
+    
+    /// Whether to show the credential save prompt
+    @Published var showCredentialSavePrompt: Bool = false
+    
     /// Combine cancellables for managing subscriptions
     private var cancellables = Set<AnyCancellable>()
     
@@ -78,10 +90,65 @@ class AppState: ObservableObject {
         // Initialize WebViewModel
         self.webViewModel = WebViewModel()
         
+        // Initialize credential detector
+        self.credentialDetector = CredentialDetector()
+        
+        // Connect detector to WebViewModel so WebView can configure it
+        webViewModel.credentialDetector = credentialDetector
+        
+        // Load saved credentials from Keychain
+        self.credentials = KeychainManager.load()
+        
+        // Set up credential detector callbacks
+        setupCredentialDetection()
+        
+        // Set up auto-fill on page load
+        setupAutoFill()
+        
         // Set up Combine subscriptions to connect components
         setupSubscriptions()
         
         os_log(.debug, log: logger, "App state initialized successfully")
+    }
+    
+    /// Set up credential detection to watch for login form submissions
+    private func setupCredentialDetection() {
+        os_log(.info, log: logger, "Setting up credential detection")
+        credentialDetector.onCredentialsSubmitted = { [weak self] credential in
+            guard let self = self else { return }
+            os_log(.info, log: logger, "Credential detected: %{public}@", credential.username)
+            
+            let isDuplicate = self.credentials.contains { $0.matchesFingerprint(of: credential) }
+            if !isDuplicate {
+                self.pendingCredential = credential
+                self.showCredentialSavePrompt = true
+            }
+        }
+    }
+    
+    /// Set up auto-fill dropdown to appear after page loads
+    private func setupAutoFill() {
+        webViewModel.onPageLoaded = { [weak self] webView in
+            guard let self = self, !self.credentials.isEmpty else { return }
+            // Delay for SPA rendering, then inject persistent dropdown + focus listeners
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                guard let self = self else { return }
+                CredentialAutoFill.injectCredentials(self.credentials, into: webView)
+            }
+        }
+    }
+    
+    /// Save a detected credential to Keychain
+    func saveCredential(_ credential: Credential) {
+        credentials.append(credential)
+        KeychainManager.save(credentials)
+        os_log(.info, log: logger, "Credential saved for user: %{public}@", credential.username)
+    }
+    
+    /// Delete a credential by ID
+    func deleteCredential(id: UUID) {
+        credentials.removeAll { $0.id == id }
+        KeychainManager.save(credentials)
     }
     
     /// Set up Combine subscriptions to connect process output to readiness detector

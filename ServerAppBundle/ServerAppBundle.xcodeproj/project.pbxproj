@@ -20,6 +20,10 @@
 		AA0000370000000000000001 /* WebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000380000000000000001 /* WebView.swift */; };
 		AA0000390000000000000001 /* BrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000400000000000000001 /* BrowserView.swift */; };
 		AA0000410000000000000001 /* ScriptResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000420000000000000001 /* ScriptResolver.swift */; };
+		AA0000430000000000000001 /* Credential.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000440000000000000001 /* Credential.swift */; };
+		AA0000450000000000000001 /* KeychainManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000460000000000000001 /* KeychainManager.swift */; };
+		AA0000470000000000000001 /* CredentialDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000480000000000000001 /* CredentialDetector.swift */; };
+		AA0000490000000000000001 /* CredentialAutoFill.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000500000000000000001 /* CredentialAutoFill.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -38,6 +42,10 @@
 		AA0000380000000000000001 /* WebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebView.swift; sourceTree = "<group>"; };
 		AA0000400000000000000001 /* BrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserView.swift; sourceTree = "<group>"; };
 		AA0000420000000000000001 /* ScriptResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScriptResolver.swift; sourceTree = "<group>"; };
+		AA0000440000000000000001 /* Credential.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Credential.swift; sourceTree = "<group>"; };
+		AA0000460000000000000001 /* KeychainManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainManager.swift; sourceTree = "<group>"; };
+		AA0000480000000000000001 /* CredentialDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialDetector.swift; sourceTree = "<group>"; };
+		AA0000500000000000000001 /* CredentialAutoFill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialAutoFill.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -74,6 +82,10 @@
 				AA0000080000000000000001 /* ServerConfiguration.swift */,
 				AA0000100000000000000001 /* ConfigurationLoader.swift */,
 				AA0000420000000000000001 /* ScriptResolver.swift */,
+				AA0000440000000000000001 /* Credential.swift */,
+				AA0000460000000000000001 /* KeychainManager.swift */,
+				AA0000480000000000000001 /* CredentialDetector.swift */,
+				AA0000500000000000000001 /* CredentialAutoFill.swift */,
 				AA0000060000000000000001 /* Assets.xcassets */,
 				AA0000140000000000000001 /* ServerAppBundle.entitlements */,
 			);
@@ -169,6 +181,10 @@
 				AA0000370000000000000001 /* WebView.swift in Sources */,
 				AA0000390000000000000001 /* BrowserView.swift in Sources */,
 				AA0000410000000000000001 /* ScriptResolver.swift in Sources */,
+				AA0000430000000000000001 /* Credential.swift in Sources */,
+				AA0000450000000000000001 /* KeychainManager.swift in Sources */,
+				AA0000470000000000000001 /* CredentialDetector.swift in Sources */,
+				AA0000490000000000000001 /* CredentialAutoFill.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

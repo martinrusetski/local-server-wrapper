@@ -36,6 +36,12 @@ class WebViewModel: ObservableObject {
     /// Reference to the web view (set by WebView)
     weak var webView: WKWebView?
     
+    /// Credential detector for form submission detection
+    var credentialDetector: CredentialDetector?
+    
+    /// Callback invoked when a page finishes loading, receives the WKWebView
+    var onPageLoaded: ((WKWebView) -> Void)?
+    
     // MARK: - Public Methods
     
     /// Load a URL in the web view

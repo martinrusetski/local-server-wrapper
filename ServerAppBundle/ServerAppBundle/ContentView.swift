@@ -216,6 +216,21 @@ struct ContentView: View {
         } message: {
             Text("The server has been running for 30 seconds but the ready signal has not been detected. You can keep waiting or manually open the browser.")
         }
+        .alert("Save Credentials?", isPresented: $appState.showCredentialSavePrompt) {
+            Button("Save") {
+                if let cred = appState.pendingCredential {
+                    appState.saveCredential(cred)
+                }
+            }
+            .keyboardShortcut(.return)
+            Button("Not Now", role: .cancel) {
+                appState.pendingCredential = nil
+            }
+        } message: {
+            if let cred = appState.pendingCredential {
+                Text("Save login for \"\(cred.username)\" on this page? Your credentials will be stored securely.")
+            }
+        }
     }
     
     private func applyToolbarState(to window: NSWindow, hidden: Bool) {

@@ -27,6 +27,9 @@ struct WebView: NSViewRepresentable {
         // Enable developer extras for debugging
         webView.configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
         
+        // Configure credential detector on the webView's own configuration
+        viewModel.credentialDetector?.configure(webView.configuration.userContentController)
+        
         // Store reference in view model
         DispatchQueue.main.async {
             viewModel.webView = webView
@@ -81,6 +84,7 @@ struct WebView: NSViewRepresentable {
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             Task { @MainActor in
                 viewModel.updateNavigationState(from: webView)
+                viewModel.onPageLoaded?(webView)
             }
         }
         
