@@ -19,6 +19,7 @@ xcuserdata/
 
 # Build Products
 build/
+build-logs/
 DerivedData/
 *.build/
 *.ipa

@@ -15,18 +15,20 @@ struct WebView: NSViewRepresentable {
     // MARK: - NSViewRepresentable
     
     func makeNSView(context: Context) -> WKWebView {
-        // Configure WKWebView with proper settings for localhost
+        // Configure WKWebView for the localhost app. We deliberately do NOT relax same-origin
+        // protections (no allowFileAccessFromFileURLs / allowUniversalAccessFromFileURLs): the app
+        // loads http://localhost, never file://, so those private SPI flags only weaken security (TASK-9).
         let configuration = WKWebViewConfiguration()
-        configuration.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
-        configuration.setValue(true, forKey: "allowUniversalAccessFromFileURLs")
-        
+
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator // Enable file uploads
-        
-        // Enable developer extras for debugging
+
+        // Developer extras (Web Inspector) are debug-only — never enabled in Release (TASK-9).
+        #if DEBUG
         webView.configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
-        
+        #endif
+
         // Configure credential detector on the webView's own configuration
         viewModel.credentialDetector?.configure(webView.configuration.userContentController)
         

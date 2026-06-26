@@ -54,7 +54,8 @@ class CredentialDetector: NSObject, WKScriptMessageHandler {
                     passwordFieldId: fieldId(pw),
                     passwordFieldName: fieldName(pw),
                     formActionPath: actionPath,
-                    pagePath: window.location.pathname
+                    pagePath: window.location.pathname,
+                    origin: window.location.origin
                 });
                 console.log('[Credentials] Message posted to Swift');
                 return true;
@@ -136,6 +137,7 @@ class CredentialDetector: NSObject, WKScriptMessageHandler {
             passwordFieldName: nilIfEmpty(body["passwordFieldName"]),
             formActionPath: nilIfEmpty(body["formActionPath"]),
             pagePath: nilIfEmpty(body["pagePath"]),
+            origin: nilIfEmpty(body["origin"]),
             createdAt: Date()
         )
 

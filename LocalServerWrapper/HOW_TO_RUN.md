@@ -8,7 +8,7 @@
 ### Option 1: Run from Xcode (Recommended)
 1. Open the project in Xcode:
    ```bash
-   open LocalServerWrapperApp/LocalServerWrapper/LocalServerWrapper.xcodeproj
+   open LocalServerWrapper/LocalServerWrapper.xcodeproj
    ```
 
 2. Click the "Run" button (▶️) in Xcode, or press `Cmd+R`
@@ -17,12 +17,12 @@
 
 ### Option 2: Run from Terminal
 ```bash
-open LocalServerWrapperApp/LocalServerWrapper/DerivedData/LocalServerWrapper-*/Build/Products/Debug/LocalServerWrapper.app
+open ~/Library/Developer/Xcode/DerivedData/LocalServerWrapper-*/Build/Products/Debug/LocalServerWrapper.app
 ```
 
 Or build and run:
 ```bash
-cd LocalServerWrapperApp/LocalServerWrapper
+cd LocalServerWrapper
 xcodebuild -project LocalServerWrapper.xcodeproj -scheme LocalServerWrapper -configuration Debug
 open ~/Library/Developer/Xcode/DerivedData/LocalServerWrapper-*/Build/Products/Debug/LocalServerWrapper.app
 ```

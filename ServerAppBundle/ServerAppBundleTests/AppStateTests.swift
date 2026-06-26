@@ -113,25 +113,15 @@ final class AppStateTests: XCTestCase {
         )
         
         let appState = AppState(configuration: config)
-        
-        // Create expectation for browser URL loading
-        let urlLoadedExpectation = expectation(description: "Browser URL is loaded")
-        
-        // Observe URL changes in web view model
-        appState.webViewModel.$url
-            .dropFirst() // Skip initial nil value
-            .sink { url in
-                if url != nil {
-                    urlLoadedExpectation.fulfill()
-                }
-            }
-            .store(in: &cancellables)
-        
-        // When: The readiness detector is already ready (immediate)
-        // The Combine subscription should trigger browser loading
-        
-        // Then: Browser should load the URL
-        await fulfillment(of: [urlLoadedExpectation], timeout: 1.0)
+
+        // Readiness is immediate (no ready signal pattern), so the readiness→browser-load
+        // subscription fires during AppState setup. Poll for the URL rather than relying on a
+        // change event, which we would subscribe to only after the value was already set.
+        let deadline = Date().addingTimeInterval(1.0)
+        while appState.webViewModel.url == nil && Date() < deadline {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+
         XCTAssertNotNil(appState.webViewModel.url)
         XCTAssertEqual(appState.webViewModel.url?.absoluteString, "http://localhost:8080")
     }
@@ -323,30 +313,15 @@ final class AppStateTests: XCTestCase {
         )
         
         let appState = AppState(configuration: config)
-        
-        // Create expectation for timeout alert
-        let timeoutExpectation = expectation(description: "Timeout alert is shown")
-        
-        // Observe timeout alert changes
-        appState.$showTimeoutAlert
-            .dropFirst() // Skip initial value
-            .sink { showTimeout in
-                if showTimeout {
-                    timeoutExpectation.fulfill()
-                }
-            }
-            .store(in: &cancellables)
-        
+
         // When: Starting the server
         appState.startServer()
-        
-        // Then: Timeout alert should be shown after 30 seconds
-        // Note: We can't wait 30 seconds in a test, so we'll verify the timer is set up
-        // In a real scenario, the timer would fire after 30 seconds
-        
-        // For testing purposes, we'll just verify the process started
+
+        // Then: the 30s ready-signal timeout timer is scheduled. We can't wait 30s in a unit test,
+        // and the timeout duration isn't injectable, so we verify the server started (which is what
+        // schedules the timer). The alert firing itself isn't unit-testable without that injection.
         XCTAssertTrue(appState.isProcessRunning)
-        
+
         // Clean up
         appState.stopServer()
     }

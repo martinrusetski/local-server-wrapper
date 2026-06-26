@@ -130,7 +130,9 @@ struct ContentView: View {
                                 .scaleEffect(0.6)
                                 .frame(width: 16, height: 16)
                         } else {
-                            Image(systemName: "lock.fill")
+                            // Neutral indicator — this is plain http://localhost, not TLS,
+                            // so a padlock would be misleading (TASK-12).
+                            Image(systemName: "globe")
                                 .font(.system(size: 11))
                                 .foregroundColor(.secondary)
                         }
@@ -153,6 +155,13 @@ struct ContentView: View {
             
             ToolbarItemGroup(placement: .automatic) {
                 if appState.readinessDetector.isReady {
+                    Button(action: {
+                        appState.showCredentialManager = true
+                    }) {
+                        Label("Saved Logins", systemImage: "key")
+                    }
+                    .help("View and delete saved logins")
+
                     Button(action: {
                         withAnimation {
                             appState.toggleSidebar()
@@ -185,11 +194,8 @@ struct ContentView: View {
             }
             .keyboardShortcut(.escape)
             Button("Quit Anyway", role: .destructive) {
-                appState.stopServer()
-                // Give the process a moment to terminate
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    NSApplication.shared.terminate(nil)
-                }
+                // Synchronously kill the server tree, then quit — no orphaned port-holder (TASK-2).
+                appState.confirmQuitAndTerminate()
             }
             .keyboardShortcut(.return)
         } message: {
@@ -231,6 +237,10 @@ struct ContentView: View {
                 Text("Save login for \"\(cred.username)\" on this page? Your credentials will be stored securely.")
             }
         }
+        .sheet(isPresented: $appState.showCredentialManager) {
+            CredentialManagerView()
+                .environmentObject(appState)
+        }
     }
     
     private func applyToolbarState(to window: NSWindow, hidden: Bool) {
@@ -253,6 +263,64 @@ struct ContentView: View {
             arguments: ["run", "dev"],
             localhostURL: "http://localhost:3000"
         )))
+}
+
+/// Minimal management UI for saved logins: lists usernames + origin and allows deletion (TASK-12).
+/// Defined here (rather than a new file) to avoid Xcode project/target surgery.
+struct CredentialManagerView: View {
+    @EnvironmentObject var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Saved Logins")
+                    .font(.headline)
+                Spacer()
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding()
+
+            Divider()
+
+            if appState.credentials.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "key.slash")
+                        .font(.system(size: 28))
+                        .foregroundColor(.secondary)
+                    Text("No saved logins")
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding()
+            } else {
+                List {
+                    ForEach(appState.credentials) { credential in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(credential.username)
+                                    .fontWeight(.medium)
+                                Text(credential.origin ?? "Unknown origin")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            Button(role: .destructive) {
+                                appState.deleteCredential(id: credential.id)
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .buttonStyle(.borderless)
+                            .help("Delete this saved login")
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+            }
+        }
+        .frame(width: 380, height: 320)
+    }
 }
 
 private struct WindowAccessor: NSViewRepresentable {

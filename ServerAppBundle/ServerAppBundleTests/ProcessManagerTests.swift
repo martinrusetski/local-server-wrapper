@@ -64,13 +64,55 @@ final class ProcessManagerTests: XCTestCase {
                 XCTFail("Expected ProcessError")
                 return
             }
-            
+
             if case .commandNotFound = processError {
                 // Expected error
             } else {
                 XCTFail("Expected commandNotFound error, got \(processError)")
             }
         }
+    }
+
+    // MARK: - Bare-command PATH resolution (TASK-1)
+
+    func testResolveBareCommandFindsExecutableOnPath() throws {
+        // `sh` lives in /bin, which is part of the default search directories.
+        let dirs = ProcessManager.searchPathDirectories(additional: [])
+        let resolved = try ProcessManager.resolveExecutable("sh", searchDirectories: dirs)
+        XCTAssertEqual(resolved, "/bin/sh", "Bare 'sh' should resolve to /bin/sh via PATH lookup")
+    }
+
+    func testResolveAbsolutePathPassesThrough() throws {
+        let resolved = try ProcessManager.resolveExecutable("/bin/echo", searchDirectories: [])
+        XCTAssertEqual(resolved, "/bin/echo", "Absolute path should be used as-is")
+    }
+
+    func testResolveMissingBareCommandThrows() {
+        let dirs = ProcessManager.searchPathDirectories(additional: [])
+        XCTAssertThrowsError(try ProcessManager.resolveExecutable("definitely-not-a-real-command-xyz", searchDirectories: dirs)) { error in
+            guard case ProcessError.commandNotFound = error else {
+                return XCTFail("Expected commandNotFound, got \(error)")
+            }
+        }
+    }
+
+    func testStartBareCommandLaunches() throws {
+        // A bare command name (no slash) must resolve via PATH and launch — previously this threw
+        // commandNotFound because Process does no PATH lookup for executableURL.
+        try processManager.start(command: "echo", arguments: ["bare-command-works"])
+        XCTAssertTrue(processManager.isRunning, "Bare command should launch without commandNotFound")
+
+        let expectation = XCTestExpectation(description: "Process completes")
+        Task {
+            while processManager.isRunning {
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 5.0)
+
+        XCTAssertEqual(processManager.exitCode, 0)
+        XCTAssertTrue(processManager.output.contains("bare-command-works"), "Output should contain echoed text")
     }
     
     func testStartAlreadyRunning() throws {

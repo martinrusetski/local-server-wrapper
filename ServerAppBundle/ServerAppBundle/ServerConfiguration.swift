@@ -7,6 +7,13 @@
 
 import Foundation
 
+// NOTE: This type is DUPLICATED across both Xcode projects and must be kept byte-identical
+// (modulo this file's top header comment):
+//   - ServerAppBundle/ServerAppBundle/ServerConfiguration.swift                  (runtime)
+//   - LocalServerWrapper/.../LocalServerWrapper/Models/ServerConfiguration.swift (manager)
+// Any change here MUST be mirrored in the twin, or the embedded configuration.json will silently
+// mismatch the runtime decoder. See docs/IMPLEMENTATION_SPEC.md §1 (the duplicated-file trap).
+
 /// How the server launch command is sourced
 enum ScriptSource: String, Codable {
     case command   // manual command + arguments
@@ -14,8 +21,9 @@ enum ScriptSource: String, Codable {
     case inline    // typed inline script
 }
 
-/// Represents a server configuration with all required settings for launching a server
-struct ServerConfiguration: Codable, Identifiable, Equatable {
+/// Represents a server configuration used by the manager (to generate an app bundle) and by the
+/// runtime (to launch the server).
+struct ServerConfiguration: Codable, Identifiable, Equatable, Hashable {
     /// Unique identifier for the configuration
     let id: UUID
     

@@ -45,7 +45,13 @@ class ReadinessDetector: ReadinessDetectorProtocol {
     
     private var readySignalRegex: NSRegularExpression?
     private var portDetectionRegex: NSRegularExpression?
-    
+
+    /// Rolling window of recently-seen output. `monitor` is fed incremental chunks (not the whole
+    /// buffer), so we keep a small tail here to catch a ready signal/port split across two chunks.
+    /// Bounded so scanning is O(window), not O(total output) — fixes the O(n²) re-scan (TASK-3).
+    private var scanBuffer: String = ""
+    private let maxScanBuffer = 8192
+
     // MARK: - Initialization
     
     /// Initialize a readiness detector
@@ -99,13 +105,24 @@ class ReadinessDetector: ReadinessDetectorProtocol {
     
     // MARK: - Public Methods
     
-    func monitor(output: String) {
-        // Once ready, stay ready (don't flip back)
+    /// Feed an incremental chunk of output (not the full accumulated buffer). The detector keeps
+    /// a bounded rolling window internally so matches spanning chunk boundaries are still found.
+    func monitor(output chunk: String) {
+        // Once ready, stay ready (don't flip back). Also stops scanning entirely after readiness.
         guard !isReady else { return }
-        
+
+        // Append to the rolling window and trim from the front to keep scanning bounded.
+        scanBuffer += chunk
+        if scanBuffer.count > maxScanBuffer {
+            let overflow = scanBuffer.count - maxScanBuffer
+            let start = scanBuffer.index(scanBuffer.startIndex, offsetBy: overflow)
+            scanBuffer = String(scanBuffer[start...])
+        }
+        let output = scanBuffer
+
         // Check for ready signal
         let hasReadySignal = checkReadySignal(in: output)
-        
+
         guard hasReadySignal else { return }
         
         os_log(.info, log: logger, "Ready signal detected in output")
@@ -140,6 +157,7 @@ class ReadinessDetector: ReadinessDetectorProtocol {
         os_log(.info, log: logger, "Resetting readiness detector")
         self.isReady = false
         self.detectedURL = nil
+        self.scanBuffer = ""
         
         // If no ready signal pattern, mark as ready immediately
         if readySignalPattern == nil || readySignalPattern?.isEmpty == true {

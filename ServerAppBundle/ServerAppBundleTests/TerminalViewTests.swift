@@ -11,73 +11,59 @@ import SwiftUI
 
 @MainActor
 final class TerminalViewTests: XCTestCase {
-    
-    func testTerminalViewDisplaysOutput() {
-        // Given
-        let processManager = ProcessManager()
-        
-        // When - Simulate output
-        processManager.setValue("Test output\n", forKey: "output")
-        
-        // Then - Verify the view can be created with the process manager
-        let terminalView = TerminalView(processManager: processManager)
-        XCTAssertNotNil(terminalView)
+
+    // Note: `output`, `isRunning`, and `exitCode` are `private(set)` on ProcessManager and it is
+    // not an NSObject, so state can't be injected via KVC. These tests drive real state through a
+    // real process and verify the view constructs against it. (Deep view-rendering assertions would
+    // need a tool like ViewInspector, which the project doesn't depend on.)
+
+    private func runToCompletion(_ pm: ProcessManager, command: String, arguments: [String]) throws {
+        try pm.start(command: command, arguments: arguments)
+        let expectation = XCTestExpectation(description: "Process completes")
+        Task {
+            while pm.isRunning {
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 5.0)
     }
-    
-    func testTerminalViewDisplaysExitCode() {
-        // Given
+
+    func testTerminalViewConstructsWithFreshManager() {
         let processManager = ProcessManager()
-        
-        // When - Simulate process termination
-        processManager.setValue("Process output\n", forKey: "output")
-        processManager.setValue(false, forKey: "isRunning")
-        processManager.setValue(Int32(0), forKey: "exitCode")
-        
-        // Then - Verify the view can be created with exit code
         let terminalView = TerminalView(processManager: processManager)
         XCTAssertNotNil(terminalView)
+        XCTAssertEqual(processManager.output, "", "Fresh manager should have empty output")
+        XCTAssertNil(processManager.exitCode, "Fresh manager should have no exit code")
+    }
+
+    func testTerminalViewReflectsSuccessfulOutput() throws {
+        let processManager = ProcessManager()
+        try runToCompletion(processManager, command: "/bin/echo", arguments: ["Test output"])
+
+        let terminalView = TerminalView(processManager: processManager)
+        XCTAssertNotNil(terminalView)
+        XCTAssertTrue(processManager.output.contains("Test output"))
         XCTAssertEqual(processManager.exitCode, 0)
     }
-    
-    func testTerminalViewDisplaysErrorExitCode() {
-        // Given
+
+    func testTerminalViewReflectsErrorExitCode() throws {
         let processManager = ProcessManager()
-        
-        // When - Simulate process termination with error
-        processManager.setValue("Error output\n", forKey: "output")
-        processManager.setValue(false, forKey: "isRunning")
-        processManager.setValue(Int32(1), forKey: "exitCode")
-        
-        // Then - Verify the view can be created with error exit code
+        try runToCompletion(processManager, command: "/bin/sh", arguments: ["-c", "exit 1"])
+
         let terminalView = TerminalView(processManager: processManager)
         XCTAssertNotNil(terminalView)
         XCTAssertEqual(processManager.exitCode, 1)
     }
-    
-    func testTerminalViewHandlesEmptyOutput() {
-        // Given
+
+    func testTerminalViewBuffersLargeOutputWithoutGrowingUnbounded() throws {
         let processManager = ProcessManager()
-        
-        // When - No output
-        processManager.setValue("", forKey: "output")
-        
-        // Then - Verify the view can be created with empty output
+        // Emit far more than the retained-buffer cap to confirm trimming keeps it bounded (TASK-3).
+        try runToCompletion(processManager, command: "/bin/sh", arguments: ["-c", "yes 'Line of output' | head -n 50000"])
+
         let terminalView = TerminalView(processManager: processManager)
         XCTAssertNotNil(terminalView)
-        XCTAssertEqual(processManager.output, "")
-    }
-    
-    func testTerminalViewHandlesLargeOutput() {
-        // Given
-        let processManager = ProcessManager()
-        
-        // When - Large output
-        let largeOutput = String(repeating: "Line of output\n", count: 1000)
-        processManager.setValue(largeOutput, forKey: "output")
-        
-        // Then - Verify the view can be created with large output
-        let terminalView = TerminalView(processManager: processManager)
-        XCTAssertNotNil(terminalView)
-        XCTAssertTrue(processManager.output.count > 10000)
+        // The buffer is capped (~200k chars), so it must not retain the full ~850k chars emitted.
+        XCTAssertLessThan(processManager.output.count, 250_000, "Output buffer should be trimmed, not unbounded")
     }
 }

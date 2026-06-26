@@ -39,9 +39,13 @@ struct CredentialAutoFill {
                 if (!credentials.length) return;
 
                 var currentPath = window.location.pathname;
+                var currentOrigin = window.location.origin;
                 var matches = [];
 
                 credentials.forEach(function(cred) {
+                    // Require an origin match (scheme + host + port), not just a path match (TASK-8).
+                    // Legacy credentials without an origin never match here.
+                    if (!cred.origin || cred.origin !== currentOrigin) return;
                     if (cred.pagePath && cred.pagePath !== currentPath) return;
 
                     var pwField = findField(cred, 'password');
@@ -154,8 +158,16 @@ struct CredentialAutoFill {
                 showDropdowns();
             }, true);
 
-            // Show immediately on first load
-            showDropdowns();
+            // Show immediately, then retry for slow SPAs that haven't rendered the form yet.
+            // Bounded retries replace the old fixed Swift-side delay (TASK-12).
+            var autofillAttempts = 0;
+            function attemptShow() {
+                showDropdowns();
+                if (document.querySelector('.__credentialDropdown')) return; // dropdown shown, done
+                if (autofillAttempts++ >= 20) return;                        // ~6s of retries, then stop
+                setTimeout(attemptShow, 300);
+            }
+            attemptShow();
         })();
         """
 

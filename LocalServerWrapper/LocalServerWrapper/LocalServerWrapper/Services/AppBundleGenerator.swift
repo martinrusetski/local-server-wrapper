@@ -119,54 +119,7 @@ class AppBundleGenerator: AppBundleGeneratorProtocol {
     }
     
     // MARK: - Private Methods
-    
-    /// Create the standard macOS app bundle directory structure
-    /// - Parameter bundleURL: The URL where the bundle should be created
-    /// - Throws: GenerationError.bundleCreationFailed if structure creation fails
-    private func createBundleStructure(at bundleURL: URL) throws {
-        os_log(.debug, log: logger, "Creating bundle structure at: %{public}@", bundleURL.path)
-        let fileManager = FileManager.default
-        
-        // Create main bundle directory
-        do {
-            try fileManager.createDirectory(at: bundleURL, withIntermediateDirectories: true)
-            os_log(.debug, log: logger, "Created bundle directory")
-        } catch {
-            os_log(.error, log: logger, "Failed to create bundle directory: %{public}@", error.localizedDescription)
-            throw GenerationError.bundleCreationFailed("Failed to create bundle directory: \(error.localizedDescription)")
-        }
-        
-        // Create Contents directory
-        let contentsURL = bundleURL.appendingPathComponent("Contents")
-        do {
-            try fileManager.createDirectory(at: contentsURL, withIntermediateDirectories: true)
-            os_log(.debug, log: logger, "Created Contents directory")
-        } catch {
-            os_log(.error, log: logger, "Failed to create Contents directory: %{public}@", error.localizedDescription)
-            throw GenerationError.bundleCreationFailed("Failed to create Contents directory: \(error.localizedDescription)")
-        }
-        
-        // Create MacOS directory (for executable)
-        let macOSURL = contentsURL.appendingPathComponent("MacOS")
-        do {
-            try fileManager.createDirectory(at: macOSURL, withIntermediateDirectories: true)
-            os_log(.debug, log: logger, "Created MacOS directory")
-        } catch {
-            os_log(.error, log: logger, "Failed to create MacOS directory: %{public}@", error.localizedDescription)
-            throw GenerationError.bundleCreationFailed("Failed to create MacOS directory: \(error.localizedDescription)")
-        }
-        
-        // Create Resources directory (for configuration and assets)
-        let resourcesURL = contentsURL.appendingPathComponent("Resources")
-        do {
-            try fileManager.createDirectory(at: resourcesURL, withIntermediateDirectories: true)
-            os_log(.debug, log: logger, "Created Resources directory")
-        } catch {
-            os_log(.error, log: logger, "Failed to create Resources directory: %{public}@", error.localizedDescription)
-            throw GenerationError.bundleCreationFailed("Failed to create Resources directory: \(error.localizedDescription)")
-        }
-    }
-    
+
     /// Copy the executable template to the bundle's MacOS directory
     /// - Parameter bundleURL: The URL of the bundle being created
     /// - Throws: GenerationError.resourceCopyFailed if copying fails
@@ -230,11 +183,9 @@ class AppBundleGenerator: AppBundleGeneratorProtocol {
             os_log(.error, log: logger, "ServerAppBundle.app not found")
             throw GenerationError.resourceCopyFailed("""
                 ServerAppBundle.app not found.
-                
+
                 For development: Build ServerAppBundle in Release mode first.
                 For distribution: Add ServerAppBundle.app to LocalServerWrapper's Copy Bundle Resources.
-                
-                See SIMPLE_SOLUTION.md for instructions.
                 """)
         }
         
@@ -321,179 +272,8 @@ class AppBundleGenerator: AppBundleGeneratorProtocol {
             throw GenerationError.signingFailed(error.localizedDescription)
         }
     }
-    
-    /// Sign the app bundle with entitlements using codesign
-    /// - Parameter bundleURL: The URL of the bundle to sign
-    /// - Throws: GenerationError.signingFailed if signing fails
-    private func signBundle(at bundleURL: URL) async throws {
-        os_log(.info, log: logger, "Signing bundle: %{public}@", bundleURL.lastPathComponent)
-        
-        // First, remove any existing signature from the executable
-        // This is important because we copied a pre-signed executable
-        let executableURL = bundleURL.appendingPathComponent("Contents/MacOS/ServerAppBundle")
-        let removeProcess = Process()
-        removeProcess.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
-        removeProcess.arguments = ["--remove-signature", executableURL.path]
-        try? removeProcess.run()
-        removeProcess.waitUntilExit()
-        os_log(.debug, log: logger, "Removed existing signature from executable")
-        
-        // Locate the entitlements file
-        var entitlementsURL: URL?
-        var searchedPaths: [String] = []
-        
-        // 1. Try to find it in the main bundle resources
-        if let bundleResource = Bundle.main.url(forResource: "ServerAppBundle", withExtension: "entitlements") {
-            searchedPaths.append(bundleResource.path)
-            if FileManager.default.fileExists(atPath: bundleResource.path) {
-                entitlementsURL = bundleResource
-            }
-        }
-        
-        // 2. Try to find workspace root by navigating up from executable
-        if entitlementsURL == nil, let executablePath = Bundle.main.executablePath {
-            let executableURL = URL(fileURLWithPath: executablePath)
-            var currentURL = executableURL
-            for _ in 0..<10 {
-                currentURL = currentURL.deletingLastPathComponent()
-                if currentURL.lastPathComponent == "LocalServerWrapper" {
-                    let workspaceRoot = currentURL.deletingLastPathComponent()
-                    let candidatePath = workspaceRoot.appendingPathComponent("ServerAppBundle/ServerAppBundle/ServerAppBundle.entitlements")
-                    searchedPaths.append(candidatePath.path)
-                    if FileManager.default.fileExists(atPath: candidatePath.path) {
-                        entitlementsURL = candidatePath
-                        break
-                    }
-                }
-            }
-        }
-        
-        // 3. Try SRCROOT environment variable
-        if entitlementsURL == nil, let sourceRoot = ProcessInfo.processInfo.environment["SRCROOT"] {
-            let sourceRootURL = URL(fileURLWithPath: sourceRoot)
-            let candidatePath = sourceRootURL
-                .deletingLastPathComponent()
-                .appendingPathComponent("ServerAppBundle/ServerAppBundle/ServerAppBundle.entitlements")
-            searchedPaths.append(candidatePath.path)
-            if FileManager.default.fileExists(atPath: candidatePath.path) {
-                entitlementsURL = candidatePath
-            }
-        }
-        
-        // 4. Try absolute path (hardcoded for development)
-        if entitlementsURL == nil {
-            let absolutePath = URL(fileURLWithPath: "/Users/martinr/Developer/terminal-web-wrapper/ServerAppBundle/ServerAppBundle/ServerAppBundle.entitlements")
-            searchedPaths.append(absolutePath.path)
-            if FileManager.default.fileExists(atPath: absolutePath.path) {
-                entitlementsURL = absolutePath
-                os_log(.info, log: logger, "Using hardcoded absolute path for entitlements (development mode)")
-            }
-        }
-        
-        guard let entitlementsURL = entitlementsURL else {
-            let searchedPathsString = searchedPaths.joined(separator: "\n  - ")
-            os_log(.error, log: logger, "Entitlements file not found. Searched:\n%{public}@", searchedPathsString)
-            throw GenerationError.signingFailed("Entitlements file not found. Searched locations:\n  - \(searchedPathsString)")
-        }
-        
-        os_log(.debug, log: logger, "Using entitlements file: %{public}@", entitlementsURL.path)
-        
-        // Create the codesign process
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
-        
-        // Set up arguments for ad-hoc signing with entitlements
-        // --force: Replace existing signature if present
-        // --sign -: Ad-hoc signing (no developer certificate required)
-        // --entitlements: Path to entitlements file
-        // --deep: Sign nested code (if any)
-        process.arguments = [
-            "--force",
-            "--sign", "-",
-            "--entitlements", entitlementsURL.path,
-            "--deep",
-            bundleURL.path
-        ]
-        
-        // Capture output for error reporting
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
-        
-        // Run the codesign process
-        do {
-            try process.run()
-            process.waitUntilExit()
-            
-            // Check exit status
-            if process.terminationStatus != 0 {
-                // Read error output
-                let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-                let errorOutput = String(data: errorData, encoding: .utf8) ?? "Unknown error"
-                os_log(.error, log: logger, "codesign failed with status %d: %{public}@", process.terminationStatus, errorOutput)
-                throw GenerationError.signingFailed("codesign failed with status \(process.terminationStatus): \(errorOutput)")
-            }
-            
-            os_log(.debug, log: logger, "Bundle signed successfully")
-            
-            // Verify the signature after signing
-            try await verifySignature(at: bundleURL)
-            
-        } catch let error as GenerationError {
-            // Re-throw GenerationError as-is
-            throw error
-        } catch {
-            os_log(.error, log: logger, "Failed to execute codesign: %{public}@", error.localizedDescription)
-            throw GenerationError.signingFailed("Failed to execute codesign: \(error.localizedDescription)")
-        }
-    }
-    
-    /// Verify the code signature of the bundle
-    /// - Parameter bundleURL: The URL of the bundle to verify
-    /// - Throws: GenerationError.signingFailed if verification fails
-    private func verifySignature(at bundleURL: URL) async throws {
-        // Create the codesign verification process
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
-        
-        // Set up arguments for verification
-        // --verify: Verify the code signature
-        // --deep: Verify nested code
-        // --strict: Use strict verification
-        // --verbose: Provide detailed output
-        process.arguments = [
-            "--verify",
-            "--deep",
-            "--strict",
-            "--verbose=2",
-            bundleURL.path
-        ]
-        
-        // Capture output for error reporting
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
-        
-        // Run the verification process
-        do {
-            try process.run()
-            process.waitUntilExit()
-            
-            // Check exit status
-            if process.terminationStatus != 0 {
-                // Read error output
-                let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-                let errorOutput = String(data: errorData, encoding: .utf8) ?? "Unknown error"
-                throw GenerationError.signingFailed("Signature verification failed: \(errorOutput)")
-            }
-            
-        } catch let error as GenerationError {
-            // Re-throw GenerationError as-is
-            throw error
-        } catch {
-            throw GenerationError.signingFailed("Failed to verify signature: \(error.localizedDescription)")
-        }
-    }
 }
+
+// NOTE: The unused signBundle(at:) and verifySignature(at:) helpers were removed here (TASK-6).
+// They were never called — generation signs via the ad-hoc signAdHoc(_:) path above — and
+// signBundle contained a hardcoded developer-specific entitlements path. Do not reintroduce them.

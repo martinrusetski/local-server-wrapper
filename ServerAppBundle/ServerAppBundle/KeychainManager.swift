@@ -12,6 +12,8 @@ private let logger = OSLog(subsystem: "com.localserverwrapper.serverappbundle", 
 
 struct KeychainManager {
     private static let accountName = "saved-credentials"
+    /// Separate Keychain account holding the per-install random key for the UserDefaults fallback.
+    private static let fallbackKeyAccount = "fallback-encryption-key"
 
     private static var serviceName: String {
         Bundle.main.bundleIdentifier ?? "com.localserverwrapper.unknown"
@@ -19,24 +21,32 @@ struct KeychainManager {
 
     // MARK: - Public API
 
-    static func save(_ credentials: [Credential]) {
+    /// Persist credentials. Returns `false` when secure storage is impossible (neither the
+    /// Keychain item nor a Keychain-held encryption key could be written) — in that case nothing
+    /// is written in a guessable form and the caller should tell the user (TASK-7).
+    @discardableResult
+    static func save(_ credentials: [Credential]) -> Bool {
         guard let data = try? JSONEncoder().encode(credentials) else {
             os_log(.error, log: logger, "Failed to encode credentials")
-            return
+            return false
         }
 
         if saveToKeychain(data) {
             UserDefaults.standard.removeObject(forKey: accountName)
-            return
+            return true
         }
 
-        guard let encrypted = encrypt(data) else {
-            os_log(.error, log: logger, "Both Keychain and encryption failed, credentials not persisted")
-            return
+        // Keychain item write failed. Fall back to encrypted UserDefaults — but only under a
+        // per-install random key held in the Keychain, never a key derivable from the public
+        // bundle identifier. If we can't get that key, refuse to persist (no guessable fallback).
+        guard let key = getOrCreateFallbackKey(), let encrypted = encrypt(data, using: key) else {
+            os_log(.error, log: logger, "Secure storage unavailable, credentials NOT persisted")
+            return false
         }
 
         UserDefaults.standard.set(encrypted, forKey: accountName)
-        os_log(.info, log: logger, "Credentials saved to encrypted UserDefaults fallback")
+        os_log(.info, log: logger, "Credentials saved to encrypted UserDefaults fallback (per-install key)")
+        return true
     }
 
     static func load() -> [Credential] {
@@ -121,27 +131,75 @@ struct KeychainManager {
     private static func loadFromUserDefaults() -> [Credential]? {
         guard let stored = UserDefaults.standard.data(forKey: accountName) else { return nil }
 
-        // Try AES-GCM decryption first (current format)
-        if let decrypted = decrypt(stored),
+        // Current format: AES-GCM under the per-install random key.
+        if let key = loadFallbackKey(),
+           let decrypted = decrypt(stored, using: key),
            let credentials = try? JSONDecoder().decode([Credential].self, from: decrypted) {
             os_log(.info, log: logger, "Loaded %d credentials from encrypted UserDefaults", credentials.count)
             return credentials
         }
 
-        // Try plaintext (legacy format from before encryption was added)
+        // Legacy format: AES-GCM under the old SHA256(bundleID) key. Decode so we can migrate;
+        // load() re-saves immediately, re-encrypting under the per-install key (TASK-7 migration).
+        if let decrypted = decryptLegacy(stored),
+           let credentials = try? JSONDecoder().decode([Credential].self, from: decrypted) {
+            os_log(.info, log: logger, "Loaded %d credentials from legacy-key UserDefaults, will migrate", credentials.count)
+            return credentials
+        }
+
+        // Plaintext (oldest format, from before encryption was added).
         if let credentials = try? JSONDecoder().decode([Credential].self, from: stored) {
-            os_log(.info, log: logger, "Loaded %d credentials from legacy UserDefaults, will migrate", credentials.count)
+            os_log(.info, log: logger, "Loaded %d credentials from legacy plaintext UserDefaults, will migrate", credentials.count)
             return credentials
         }
 
         return nil
     }
 
+    // MARK: - Per-install fallback key (TASK-7)
+
+    /// Read-or-create the random fallback key in the Keychain. Returns nil if it can't be
+    /// retrieved or stored (in which case we must not persist under a guessable key).
+    private static func getOrCreateFallbackKey() -> SymmetricKey? {
+        if let existing = loadFallbackKey() { return existing }
+
+        let key = SymmetricKey(size: .bits256)
+        let keyData = key.withUnsafeBytes { Data($0) }
+
+        let addQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: serviceName,
+            kSecAttrAccount as String: fallbackKeyAccount,
+            kSecValueData as String: keyData,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
+        ]
+
+        let status = SecItemAdd(addQuery as CFDictionary, nil)
+        guard status == errSecSuccess else {
+            os_log(.error, log: logger, "Failed to store fallback encryption key: %d", status)
+            return nil
+        }
+        return key
+    }
+
+    /// Read the fallback key from the Keychain without creating one.
+    private static func loadFallbackKey() -> SymmetricKey? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: serviceName,
+            kSecAttrAccount as String: fallbackKeyAccount,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var result: AnyObject?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data else { return nil }
+        return SymmetricKey(data: data)
+    }
+
     // MARK: - Crypto
 
-    private static func encrypt(_ data: Data) -> Data? {
-        let keyMaterial = SHA256.hash(data: Data(serviceName.utf8))
-        let key = SymmetricKey(data: keyMaterial)
+    private static func encrypt(_ data: Data, using key: SymmetricKey) -> Data? {
         do {
             let sealed = try AES.GCM.seal(data, using: key)
             return sealed.combined
@@ -151,14 +209,19 @@ struct KeychainManager {
         }
     }
 
-    private static func decrypt(_ data: Data) -> Data? {
-        let keyMaterial = SHA256.hash(data: Data(serviceName.utf8))
-        let key = SymmetricKey(data: keyMaterial)
+    private static func decrypt(_ data: Data, using key: SymmetricKey) -> Data? {
         do {
             let sealedBox = try AES.GCM.SealedBox(combined: data)
             return try AES.GCM.open(sealedBox, using: key)
         } catch {
             return nil
         }
+    }
+
+    /// Decrypt data written by the old, insecure key derived from the public bundle identifier.
+    /// Used only to migrate existing data to the per-install key; not used for new writes.
+    private static func decryptLegacy(_ data: Data) -> Data? {
+        let legacyKey = SymmetricKey(data: SHA256.hash(data: Data(serviceName.utf8)))
+        return decrypt(data, using: legacyKey)
     }
 }

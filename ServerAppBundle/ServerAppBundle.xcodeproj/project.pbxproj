@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		5222D51846E9E620B9D34A3A /* AppStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A4381D9C45FFACC7F2B2447 /* AppStateTests.swift */; };
+		69AD2A6EFB3F05B9F2C882C6 /* ReadinessDetectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA907F976745B480AF6FE68A /* ReadinessDetectorTests.swift */; };
+		A6938E063A3DA0EFC9E7E3AF /* ProcessManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A30AE6C6BFE415E882336EA0 /* ProcessManagerTests.swift */; };
 		AA0000010000000000000001 /* ServerAppBundleApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000001 /* ServerAppBundleApp.swift */; };
 		AA0000030000000000000001 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000040000000000000001 /* ContentView.swift */; };
 		AA0000050000000000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA0000060000000000000001 /* Assets.xcassets */; };
@@ -24,16 +27,35 @@
 		AA0000450000000000000001 /* KeychainManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000460000000000000001 /* KeychainManager.swift */; };
 		AA0000470000000000000001 /* CredentialDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000480000000000000001 /* CredentialDetector.swift */; };
 		AA0000490000000000000001 /* CredentialAutoFill.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000500000000000000001 /* CredentialAutoFill.swift */; };
+		AA0000510000000000000001 /* BrowserOpenInterceptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000520000000000000001 /* BrowserOpenInterceptor.swift */; };
+		D762656AA51717021A23ABA5 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 49AEA30FE641813D7DEE704F /* Cocoa.framework */; };
+		D91F894D383E1BFCCFA9EB46 /* TerminalViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A0EABF5B2FC146043C746ED /* TerminalViewTests.swift */; };
+		EF30FE22C9FF185834139A29 /* ConfigurationLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3682CDDF8570672E3A561BA /* ConfigurationLoaderTests.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		347944C1D285920CC52BD162 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AA0000230000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = AA0000190000000000000001;
+			remoteInfo = ServerAppBundle;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
-		AA0000130000000000000001 /* ServerAppBundle.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ServerAppBundle.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		0A0EABF5B2FC146043C746ED /* TerminalViewTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TerminalViewTests.swift; sourceTree = "<group>"; };
+		10838BF22602D13AF135D436 /* ServerAppBundleTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ServerAppBundleTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		49AEA30FE641813D7DEE704F /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
+		8A4381D9C45FFACC7F2B2447 /* AppStateTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppStateTests.swift; sourceTree = "<group>"; };
+		A30AE6C6BFE415E882336EA0 /* ProcessManagerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ProcessManagerTests.swift; sourceTree = "<group>"; };
 		AA0000020000000000000001 /* ServerAppBundleApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerAppBundleApp.swift; sourceTree = "<group>"; };
 		AA0000040000000000000001 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		AA0000060000000000000001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		AA0000080000000000000001 /* ServerConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerConfiguration.swift; sourceTree = "<group>"; };
 		AA0000100000000000000001 /* ConfigurationLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigurationLoader.swift; sourceTree = "<group>"; };
 		AA0000120000000000000001 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		AA0000130000000000000001 /* ServerAppBundle.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ServerAppBundle.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA0000140000000000000001 /* ServerAppBundle.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ServerAppBundle.entitlements; sourceTree = "<group>"; };
 		AA0000300000000000000001 /* ProcessManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessManager.swift; sourceTree = "<group>"; };
 		AA0000320000000000000001 /* ReadinessDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadinessDetector.swift; sourceTree = "<group>"; };
@@ -46,6 +68,9 @@
 		AA0000460000000000000001 /* KeychainManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainManager.swift; sourceTree = "<group>"; };
 		AA0000480000000000000001 /* CredentialDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialDetector.swift; sourceTree = "<group>"; };
 		AA0000500000000000000001 /* CredentialAutoFill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialAutoFill.swift; sourceTree = "<group>"; };
+		AA0000520000000000000001 /* BrowserOpenInterceptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserOpenInterceptor.swift; sourceTree = "<group>"; };
+		B3682CDDF8570672E3A561BA /* ConfigurationLoaderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ConfigurationLoaderTests.swift; sourceTree = "<group>"; };
+		BA907F976745B480AF6FE68A /* ReadinessDetectorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ReadinessDetectorTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -56,14 +81,40 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F952946DF0F48DC6C0690271 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D762656AA51717021A23ABA5 /* Cocoa.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		0B4F0D8594EBACDBE3D7B488 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				A37D4A4FDF0147A3BB368078 /* OS X */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		A37D4A4FDF0147A3BB368078 /* OS X */ = {
+			isa = PBXGroup;
+			children = (
+				49AEA30FE641813D7DEE704F /* Cocoa.framework */,
+			);
+			name = "OS X";
+			sourceTree = "<group>";
+		};
 		AA0000160000000000000001 = {
 			isa = PBXGroup;
 			children = (
 				AA0000170000000000000001 /* ServerAppBundle */,
 				AA0000180000000000000001 /* Products */,
+				0B4F0D8594EBACDBE3D7B488 /* Frameworks */,
+				C794A71C6E7738158E23A4AC /* ServerAppBundleTests */,
 			);
 			sourceTree = "<group>";
 		};
@@ -86,6 +137,7 @@
 				AA0000460000000000000001 /* KeychainManager.swift */,
 				AA0000480000000000000001 /* CredentialDetector.swift */,
 				AA0000500000000000000001 /* CredentialAutoFill.swift */,
+				AA0000520000000000000001 /* BrowserOpenInterceptor.swift */,
 				AA0000060000000000000001 /* Assets.xcassets */,
 				AA0000140000000000000001 /* ServerAppBundle.entitlements */,
 			);
@@ -96,13 +148,45 @@
 			isa = PBXGroup;
 			children = (
 				AA0000130000000000000001 /* ServerAppBundle.app */,
+				10838BF22602D13AF135D436 /* ServerAppBundleTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		C794A71C6E7738158E23A4AC /* ServerAppBundleTests */ = {
+			isa = PBXGroup;
+			children = (
+				8A4381D9C45FFACC7F2B2447 /* AppStateTests.swift */,
+				B3682CDDF8570672E3A561BA /* ConfigurationLoaderTests.swift */,
+				A30AE6C6BFE415E882336EA0 /* ProcessManagerTests.swift */,
+				BA907F976745B480AF6FE68A /* ReadinessDetectorTests.swift */,
+				0A0EABF5B2FC146043C746ED /* TerminalViewTests.swift */,
+			);
+			name = ServerAppBundleTests;
+			path = ServerAppBundleTests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		12C5F0B09F263FB77528CE8B /* ServerAppBundleTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 08E450555C1867FB09E68668 /* Build configuration list for PBXNativeTarget "ServerAppBundleTests" */;
+			buildPhases = (
+				EC05DFC787AECA0805F945D1 /* Sources */,
+				F952946DF0F48DC6C0690271 /* Frameworks */,
+				47836A907C2D4D938801AB3C /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				AE3D2964497E2E2F87B1CFEE /* PBXTargetDependency */,
+			);
+			name = ServerAppBundleTests;
+			productName = ServerAppBundleTests;
+			productReference = 10838BF22602D13AF135D436 /* ServerAppBundleTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		AA0000190000000000000001 /* ServerAppBundle */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = AA0000200000000000000001 /* Build configuration list for PBXNativeTarget "ServerAppBundle" */;
@@ -149,11 +233,19 @@
 			projectRoot = "";
 			targets = (
 				AA0000190000000000000001 /* ServerAppBundle */,
+				12C5F0B09F263FB77528CE8B /* ServerAppBundleTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		47836A907C2D4D938801AB3C /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		AA0000220000000000000001 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -185,10 +277,32 @@
 				AA0000450000000000000001 /* KeychainManager.swift in Sources */,
 				AA0000470000000000000001 /* CredentialDetector.swift in Sources */,
 				AA0000490000000000000001 /* CredentialAutoFill.swift in Sources */,
+				AA0000510000000000000001 /* BrowserOpenInterceptor.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EC05DFC787AECA0805F945D1 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5222D51846E9E620B9D34A3A /* AppStateTests.swift in Sources */,
+				EF30FE22C9FF185834139A29 /* ConfigurationLoaderTests.swift in Sources */,
+				A6938E063A3DA0EFC9E7E3AF /* ProcessManagerTests.swift in Sources */,
+				69AD2A6EFB3F05B9F2C882C6 /* ReadinessDetectorTests.swift in Sources */,
+				D91F894D383E1BFCCFA9EB46 /* TerminalViewTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		AE3D2964497E2E2F87B1CFEE /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = ServerAppBundle;
+			target = AA0000190000000000000001 /* ServerAppBundle */;
+			targetProxy = 347944C1D285920CC52BD162 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		AA0000250000000000000001 /* Debug */ = {
@@ -367,9 +481,50 @@
 			};
 			name = Release;
 		};
+		CA796DD824071C4C49DDC326 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.localserverwrapper.serverappbundle.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ServerAppBundle.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/ServerAppBundle";
+			};
+			name = Release;
+		};
+		F10E0EB179D4CDF06EDE04CA /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.localserverwrapper.serverappbundle.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ServerAppBundle.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/ServerAppBundle";
+			};
+			name = Debug;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		08E450555C1867FB09E68668 /* Build configuration list for PBXNativeTarget "ServerAppBundleTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CA796DD824071C4C49DDC326 /* Release */,
+				F10E0EB179D4CDF06EDE04CA /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		AA0000200000000000000001 /* Build configuration list for PBXNativeTarget "ServerAppBundle" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
