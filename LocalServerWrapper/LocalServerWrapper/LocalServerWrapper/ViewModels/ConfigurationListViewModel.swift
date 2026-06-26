@@ -137,8 +137,7 @@ class ConfigurationListViewModel: ObservableObject {
                         configuration: configuration,
                         outputDirectory: outputDirectory,
                         onSuccess: { bundleURL in
-                            self.sendSuccessNotification(configurationName: configuration.name)
-                            NSWorkspace.shared.selectFile(bundleURL.path, inFileViewerRootedAtPath: "")
+                            self.sendSuccessNotification(configurationName: configuration.name, bundleURL: bundleURL)
                         }
                     )
                 }
@@ -194,7 +193,7 @@ class ConfigurationListViewModel: ObservableObject {
                 outputDirectory: Self.bundlesDirectory,
                 onSuccess: { bundleURL in
                     UserDefaults.standard.set(currentHash, forKey: self.hashKey(for: configuration.id))
-                    self.sendSuccessNotification(configurationName: configuration.name)
+                    self.sendSuccessNotification(configurationName: configuration.name, bundleURL: bundleURL)
                     let config = NSWorkspace.OpenConfiguration()
                     NSWorkspace.shared.openApplication(at: bundleURL, configuration: config) { _, error in
                         if let error = error {
@@ -231,14 +230,16 @@ class ConfigurationListViewModel: ObservableObject {
         return trimmed.isEmpty ? "ServerApp" : trimmed
     }
     
-    /// Send a system notification for successful bundle generation
-    private func sendSuccessNotification(configurationName: String) {
+    /// Send a system notification for successful bundle generation.
+    /// Clicking the notification reveals the bundle in Finder (handled by AppDelegate).
+    private func sendSuccessNotification(configurationName: String, bundleURL: URL) {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
             guard granted else { return }
             let content = UNMutableNotificationContent()
             content.title = "Bundle Ready"
             content.body = "\"\(configurationName)\" app bundle generated successfully."
             content.sound = .default
+            content.userInfo = [AppDelegate.bundlePathUserInfoKey: bundleURL.path]
             let request = UNNotificationRequest(
                 identifier: UUID().uuidString,
                 content: content,

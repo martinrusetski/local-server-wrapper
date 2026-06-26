@@ -117,17 +117,6 @@ struct ConfigurationListView: View {
                 Text(message)
             }
         }
-        .overlay {
-            if viewModel.isGenerating {
-                GenerationProgressView(
-                    progress: viewModel.generationProgress,
-                    status: viewModel.generationStatus,
-                    onCancel: {
-                        viewModel.cancelGeneration()
-                    }
-                )
-            }
-        }
     }
     
     // MARK: - Sidebar Content
@@ -180,6 +169,7 @@ struct ConfigurationListView: View {
             if let config = selectedConfiguration {
                 ConfigurationDetailView(
                     configuration: config,
+                    isGenerating: viewModel.isGenerating,
                     onEdit: {
                         activeSheet = .edit(config)
                     },
@@ -292,75 +282,12 @@ struct EmptyStateView: View {
     }
 }
 
-// MARK: - Generation Progress View
-
-/// View displayed during app bundle generation
-struct GenerationProgressView: View {
-    let progress: Double
-    let status: String
-    let onCancel: () -> Void
-    
-    var body: some View {
-        ZStack {
-            // Semi-transparent background
-            Color.black.opacity(0.3)
-                .ignoresSafeArea()
-            
-            // Progress card
-            VStack(spacing: 20) {
-                // Icon
-                Image(systemName: "app.badge.checkmark")
-                    .font(.system(size: 50))
-                    .foregroundColor(.blue)
-                
-                // Title
-                Text("Generating App Bundle")
-                    .font(.title2)
-                    .fontWeight(.semibold)
-                
-                // Progress bar
-                VStack(spacing: 8) {
-                    ProgressView(value: progress, total: 1.0)
-                        .progressViewStyle(.linear)
-                        .frame(width: 300)
-                    
-                    // Status text
-                    Text(status)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .frame(width: 300, alignment: .leading)
-                    
-                    // Percentage
-                    Text("\(Int(progress * 100))%")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                
-                // Cancel button
-                Button("Cancel") {
-                    onCancel()
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .keyboardShortcut(.cancelAction)
-                .accessibilityLabel("Cancel generation")
-                .accessibilityHint("Stop the app bundle generation process")
-            }
-            .padding(40)
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(Color(nsColor: .windowBackgroundColor))
-                    .shadow(radius: 20)
-            )
-        }
-    }
-}
-
 // MARK: - Configuration Detail View
 
 /// View displaying details of a selected configuration
 struct ConfigurationDetailView: View {
     let configuration: ServerConfiguration
+    var isGenerating: Bool = false
     let onEdit: () -> Void
     let onGenerate: () -> Void
     let onRun: () -> Void
@@ -480,13 +407,20 @@ struct ConfigurationDetailView: View {
                     
                     Button(action: onGenerate) {
                         HStack {
-                            Image(systemName: "square.and.arrow.up")
-                            Text("Use as standalone app...")
+                            if isGenerating {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text("Generating…")
+                            } else {
+                                Image(systemName: "square.and.arrow.up")
+                                Text("Use as standalone app...")
+                            }
                         }
                         .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.large)
+                    .disabled(isGenerating)
                 }
                 
                 // Metadata
