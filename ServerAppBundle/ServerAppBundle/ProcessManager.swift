@@ -22,8 +22,12 @@ protocol ProcessManagerProtocol: ObservableObject {
     /// The exit code of the process (nil if still running or not started)
     var exitCode: Int32? { get }
     
-    /// The accumulated output from stdout and stderr
+    /// The accumulated output from stdout and stderr, as plain text (ANSI escape codes interpreted
+    /// and removed). Used for the log buffer, accessibility, and tests.
     var output: String { get }
+
+    /// The accumulated output rendered with ANSI colors/styles for display.
+    var attributedOutput: AttributedString { get }
     
     /// Start the server process with the given command and arguments
     /// - Parameters:
@@ -72,6 +76,7 @@ class ProcessManager: ProcessManagerProtocol {
     @Published private(set) var isRunning: Bool = false
     @Published private(set) var exitCode: Int32?
     @Published private(set) var output: String = ""
+    @Published private(set) var attributedOutput = AttributedString()
     @Published private(set) var isAutoAnswering: Bool = false
 
     /// Emits each newly-appended output chunk (not the whole buffer). Used by readiness
@@ -80,9 +85,9 @@ class ProcessManager: ProcessManagerProtocol {
 
     // MARK: - Private Properties
 
-    /// Hard cap on the retained terminal buffer. Output beyond this is trimmed from the front
-    /// so a chatty long-running server can't grow memory without bound (TASK-3).
-    private let maxOutputCharacters = 200_000
+    /// ANSI terminal emulator that turns the raw byte stream into colored, control-code-aware
+    /// output. Bounds its own retained buffer by line count (TASK-3). Main-actor only.
+    private let terminal = ANSITerminal()
 
     private var process: Process?
     private var outputPipe: Pipe?
@@ -178,23 +183,32 @@ class ProcessManager: ProcessManagerProtocol {
         self.outputPipe = stdoutPipe
         self.errorPipe = stderrPipe
         
+        // Decode each stream across read-chunk boundaries. `availableData` can split a multi-byte
+        // UTF-8 character; `String(data:encoding:.utf8)` returns nil for that chunk and the whole
+        // read used to be dropped (garbled/missing output). Each decoder is captured by exactly one
+        // handler and the readability queue is serial per pipe, so it is accessed serially.
+        let stdoutDecoder = UTF8StreamDecoder()
+        let stderrDecoder = UTF8StreamDecoder()
+
         // Set up output capture for stdout
         stdoutPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
-            if !data.isEmpty, let string = String(data: data, encoding: .utf8) {
-                Task { @MainActor [weak self] in
-                    self?.appendOutput(string)
-                }
+            guard !data.isEmpty else { return }
+            let string = stdoutDecoder.decode(data)
+            guard !string.isEmpty else { return }
+            Task { @MainActor [weak self] in
+                self?.appendOutput(string)
             }
         }
-        
+
         // Set up output capture for stderr
         stderrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
-            if !data.isEmpty, let string = String(data: data, encoding: .utf8) {
-                Task { @MainActor [weak self] in
-                    self?.appendOutput(string)
-                }
+            guard !data.isEmpty else { return }
+            let string = stderrDecoder.decode(data)
+            guard !string.isEmpty else { return }
+            Task { @MainActor [weak self] in
+                self?.appendOutput(string)
             }
         }
         
@@ -354,17 +368,15 @@ class ProcessManager: ProcessManagerProtocol {
     // MARK: - Private Methods
     
     private func appendOutput(_ text: String) {
-        output += text
+        // Interpret ANSI escapes / control codes and update both the plain and colored renders.
+        // The emulator bounds its own buffer by line count, so the retained output stays bounded.
+        terminal.feed(text)
+        output = terminal.plainText
+        attributedOutput = terminal.attributedString()
 
-        // Trim from the front so the retained buffer stays bounded (TASK-3).
-        if output.count > maxOutputCharacters {
-            let overflow = output.count - maxOutputCharacters
-            let start = output.index(output.startIndex, offsetBy: overflow)
-            output = "…\n" + output[start...]
-        }
-
-        // Feed only the new chunk to readiness detection (incremental scan, not full re-scan).
-        outputChunks.send(text)
+        // Feed only the new chunk to readiness detection (incremental scan, not full re-scan),
+        // with ANSI codes stripped so they can't break ready-signal / port regexes.
+        outputChunks.send(ANSITerminal.strip(text))
     }
     
     private func handleProcessTermination(_ process: Process) {
@@ -497,5 +509,64 @@ class ProcessManager: ProcessManagerProtocol {
 
         let count = length / stride
         return procs.prefix(count).map { (pid: $0.kp_proc.p_pid, ppid: $0.kp_eproc.e_ppid) }
+    }
+}
+
+/// Decodes a byte stream into UTF-8 text across chunk boundaries.
+///
+/// `FileHandle.availableData` can return a chunk that ends in the middle of a multi-byte UTF-8
+/// character (common with box-drawing glyphs, emoji, and spinner runes). `String(data:encoding:)`
+/// returns nil for such a chunk, which previously dropped the entire read and produced garbled or
+/// missing output. This holds the incomplete trailing bytes until the next read completes them.
+///
+/// Not internally synchronized: each instance is used by exactly one pipe's serial readability
+/// queue, so access is already serialized. Marked `@unchecked Sendable` only to satisfy capture in
+/// the `@Sendable` readability handler.
+final class UTF8StreamDecoder: @unchecked Sendable {
+    private var leftover = Data()
+
+    func decode(_ newData: Data) -> String {
+        var data = leftover
+        data.append(newData)
+
+        let hold = Self.incompleteTrailingByteCount(data)
+        if hold > 0 {
+            let split = data.count - hold
+            leftover = data.subdata(in: split..<data.count)
+            data = data.subdata(in: 0..<split)
+        } else {
+            leftover = Data()
+        }
+        // Boundary-correct: any remaining invalid bytes (genuinely malformed, not split) become
+        // U+FFFD rather than dropping output.
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    /// Number of trailing bytes that form an incomplete (not-yet-terminated) UTF-8 sequence and
+    /// should be withheld until more bytes arrive. Returns 0 when the data ends on a boundary.
+    private static func incompleteTrailingByteCount(_ data: Data) -> Int {
+        let bytes = [UInt8](data)
+        let n = bytes.count
+        guard n > 0 else { return 0 }
+
+        // Walk back over continuation bytes (0b10xxxxxx) to find the last lead byte.
+        var i = n - 1
+        var continuations = 0
+        while i >= 0, (bytes[i] & 0xC0) == 0x80, continuations < 3 {
+            continuations += 1
+            i -= 1
+        }
+        guard i >= 0 else { return 0 } // all continuation bytes: malformed, let them be replaced
+
+        let lead = bytes[i]
+        let expected: Int
+        if lead & 0x80 == 0 { expected = 1 }
+        else if lead & 0xE0 == 0xC0 { expected = 2 }
+        else if lead & 0xF0 == 0xE0 { expected = 3 }
+        else if lead & 0xF8 == 0xF0 { expected = 4 }
+        else { return 0 } // invalid lead byte: let it be replaced rather than withheld
+
+        let have = n - i // bytes from the lead byte to the end, inclusive
+        return have < expected ? have : 0
     }
 }
