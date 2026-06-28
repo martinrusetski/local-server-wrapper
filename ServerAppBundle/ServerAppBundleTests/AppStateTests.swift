@@ -48,17 +48,20 @@ final class AppStateTests: XCTestCase {
     
     func testAppStateWithNoReadySignal() {
         // Given: A configuration with no ready signal pattern
+        // Fixed mode with no ready pattern is the path that becomes ready immediately. (Automatic
+        // mode — the default — deliberately waits for an observed port instead.)
         let config = ServerConfiguration(
             name: "Immediate Server",
             command: "/bin/echo",
             arguments: ["test"],
             localhostURL: "http://localhost:8080",
+            urlDetectionMode: .fixed,
             readySignalPattern: nil
         )
-        
+
         // When: Creating an AppState
         let appState = AppState(configuration: config)
-        
+
         // Then: Readiness detector should be ready immediately
         XCTAssertTrue(appState.readinessDetector.isReady)
         XCTAssertNotNil(appState.readinessDetector.detectedURL)
@@ -103,12 +106,13 @@ final class AppStateTests: XCTestCase {
     // MARK: - Readiness to Browser Loading Integration Tests
     
     func testReadinessTriggersBrowserLoading() async {
-        // Given: A configuration with immediate readiness (no ready signal)
+        // Given: A configuration with immediate readiness (fixed mode, no ready signal)
         let config = ServerConfiguration(
             name: "Immediate Server",
             command: "/bin/echo",
             arguments: ["test"],
             localhostURL: "http://localhost:8080",
+            urlDetectionMode: .fixed,
             readySignalPattern: nil
         )
         

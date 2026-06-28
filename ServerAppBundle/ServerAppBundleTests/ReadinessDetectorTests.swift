@@ -110,6 +110,91 @@ class ReadinessDetectorTests: XCTestCase {
         XCTAssertNil(detector.detectedURL, "Detected URL should be nil after reset")
     }
     
+    // MARK: - Automatic Mode Tests
+
+    func testAutomaticModeDoesNotMarkReadyImmediately() async {
+        // Given: Automatic mode with no ready-signal pattern
+        let detector = ReadinessDetector(
+            readySignalPattern: nil,
+            portDetectionPattern: nil,
+            baseURL: "http://localhost:3000",
+            mode: .automatic
+        )
+
+        // Then: Should NOT be ready until a real signal arrives (unlike fixed mode)
+        XCTAssertFalse(detector.isReady, "Automatic mode must wait for a real readiness signal")
+        XCTAssertNil(detector.detectedURL)
+    }
+
+    func testAutomaticModeBecomesReadyOnGenericURLInOutput() async {
+        // Given: Automatic mode, no patterns
+        let detector = ReadinessDetector(
+            readySignalPattern: nil,
+            portDetectionPattern: nil,
+            baseURL: "http://localhost:3000",
+            mode: .automatic
+        )
+
+        // When: The server prints a loopback URL (as Vite/Next/etc. do)
+        detector.monitor(output: "  ➜  Local:   http://localhost:5173/\n")
+
+        // Then: Becomes ready at the printed port, host normalized to localhost
+        XCTAssertTrue(detector.isReady)
+        XCTAssertEqual(detector.detectedURL?.absoluteString, "http://localhost:5173")
+    }
+
+    func testAutomaticModeIgnoresNonURLOutput() async {
+        // Given: Automatic mode, no patterns
+        let detector = ReadinessDetector(
+            readySignalPattern: nil,
+            portDetectionPattern: nil,
+            baseURL: "http://localhost:3000",
+            mode: .automatic
+        )
+
+        // When: The server prints chatter without a URL
+        detector.monitor(output: "Compiling modules...\nwarning: something\n")
+
+        // Then: Still waiting (the OS port observation, not output, will resolve this)
+        XCTAssertFalse(detector.isReady)
+    }
+
+    func testNoteListeningPortMarksReady() async {
+        // Given: Automatic mode waiting
+        let detector = ReadinessDetector(
+            readySignalPattern: nil,
+            portDetectionPattern: nil,
+            baseURL: "https://localhost:3000",
+            mode: .automatic
+        )
+        XCTAssertFalse(detector.isReady)
+
+        // When: The OS reports the server is listening on a port
+        detector.noteListeningPort(8123)
+
+        // Then: Ready, with the observed port spliced into the base URL's scheme/host
+        XCTAssertTrue(detector.isReady)
+        XCTAssertEqual(detector.detectedURL?.absoluteString, "https://localhost:8123")
+    }
+
+    func testNoteListeningPortIgnoredOnceReady() async {
+        // Given: A detector already made ready by output
+        let detector = ReadinessDetector(
+            readySignalPattern: nil,
+            portDetectionPattern: nil,
+            baseURL: "http://localhost:3000",
+            mode: .automatic
+        )
+        detector.monitor(output: "http://localhost:5173/\n")
+        XCTAssertEqual(detector.detectedURL?.absoluteString, "http://localhost:5173")
+
+        // When: A later OS observation arrives
+        detector.noteListeningPort(9999)
+
+        // Then: First signal wins; the URL doesn't change
+        XCTAssertEqual(detector.detectedURL?.absoluteString, "http://localhost:5173")
+    }
+
     func testResetWithNoPatternMarksReadyImmediately() async {
         // Given: A detector with no pattern
         let detector = ReadinessDetector(

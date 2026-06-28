@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import AppKit
 
 /// Identifies which sheet to present: new or edit
 enum ConfigurationSheet: Identifiable {
@@ -211,37 +212,79 @@ struct ConfigurationListView: View {
     }
 }
 
+// MARK: - Configuration Icon View
+
+/// Displays a configuration's custom icon, falling back to a tinted SF Symbol placeholder.
+struct ConfigIconView: View {
+    let configuration: ServerConfiguration
+    var size: CGFloat = 28
+    var cornerRadius: CGFloat = 6
+
+    private var loadedImage: NSImage? {
+        guard let path = configuration.customIconPath, !path.isEmpty,
+              FileManager.default.fileExists(atPath: path) else { return nil }
+        return NSImage(contentsOfFile: path)
+    }
+
+    var body: some View {
+        Group {
+            if let image = loadedImage {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: size, height: size)
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            } else {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(Color.accentColor.opacity(0.15))
+                    .frame(width: size, height: size)
+                    .overlay {
+                        Image(systemName: "server.rack")
+                            .font(.system(size: size * 0.5))
+                            .foregroundStyle(.tint)
+                    }
+            }
+        }
+    }
+}
+
 // MARK: - Configuration Row View
 
 /// View for a single configuration row in the list
 struct ConfigurationRowView: View {
     let configuration: ServerConfiguration
-    
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(configuration.name)
-                .font(.headline)
-            
-            HStack {
-                Label(configuration.command, systemImage: "terminal")
+        HStack(spacing: 10) {
+            ConfigIconView(configuration: configuration, size: 28, cornerRadius: 6)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(configuration.name)
+                    .font(.headline)
+                    .lineLimit(1)
+
+                Text(subtitle)
                     .font(.caption)
-                    .foregroundColor(.secondary)
-                
-                if !configuration.arguments.isEmpty {
-                    Text(configuration.arguments.joined(separator: " "))
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                }
-            }
-            
-            if let url = configuration.localhostURL {
-                Label(url, systemImage: "network")
-                    .font(.caption2)
-                    .foregroundColor(.blue)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 2)
+    }
+
+    /// The most identifying secondary line: a fixed URL when one is pinned, then the command, then a
+    /// script hint. (In automatic mode the stored URL is only a fallback, so the command is more
+    /// identifying than a placeholder address.)
+    private var subtitle: String {
+        if configuration.urlDetectionMode == .fixed, let url = configuration.localhostURL, !url.isEmpty {
+            return url
+        }
+        if !configuration.command.isEmpty {
+            let args = configuration.arguments.joined(separator: " ")
+            return args.isEmpty ? configuration.command : "\(configuration.command) \(args)"
+        }
+        return configuration.scriptSource == .inline ? "Inline script" : "No command"
     }
 }
 
@@ -294,154 +337,189 @@ struct ConfigurationDetailView: View {
     let onDelete: () -> Void
     
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                // Header with icon and name
-                HStack(spacing: 12) {
-                    Image(systemName: "server.rack")
-                        .font(.system(size: 36))
-                        .foregroundColor(.blue)
-                    
-                    Text(configuration.name)
-                        .font(.title)
-                        .fontWeight(.bold)
-                }
-                .padding(.bottom, 4)
-                
-                Divider()
-                
-                // Launch Script Section
-                VStack(alignment: .leading, spacing: 6) {
-                    Label("Launch Script", systemImage: "terminal")
-                        .font(.headline)
-                    
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(scriptSourceLabel)
-                            .font(.callout)
-                            .foregroundColor(.primary)
-                        
-                        switch configuration.scriptSource {
-                        case .command:
-                            DetailRow(label: "Executable", value: configuration.command)
-                            if !configuration.arguments.isEmpty {
-                                DetailRow(label: "Arguments", value: configuration.arguments.joined(separator: " "))
-                            }
-                        case .file:
-                            DetailRow(label: "Script", value: configuration.command)
-                            if !configuration.arguments.isEmpty {
-                                DetailRow(label: "Arguments", value: configuration.arguments.joined(separator: " "))
-                            }
-                        case .inline:
-                            if let content = configuration.inlineScriptContent, !content.isEmpty {
-                                Text(content)
-                                    .font(.system(.caption, design: .monospaced))
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(3)
-                            }
-                        }
-                        
-                        if let wd = configuration.workingDirectory, !wd.isEmpty {
-                            DetailRow(label: "Working Dir", value: wd)
-                        }
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    header
+                    launchScriptCard
+                    HStack(alignment: .top, spacing: 16) {
+                        networkCard
+                        detectionCard
                     }
-                    .padding(.leading, 28)
+                    metadataFooter
                 }
-                
-                Divider()
-                
-                // Network & Detection
-                HStack(alignment: .top, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Label("Network", systemImage: "network")
-                            .font(.headline)
-                        
-                        VStack(alignment: .leading, spacing: 4) {
-                            if let url = configuration.localhostURL {
-                                Text(url)
-                                    .font(.callout)
-                                    .textSelection(.enabled)
-                            } else {
-                                Text("Not configured")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                        .padding(.leading, 28)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    
-                    VStack(alignment: .leading, spacing: 6) {
-                        Label("Detection", systemImage: "magnifyingglass")
-                            .font(.headline)
-                        
-                        VStack(alignment: .leading, spacing: 4) {
-                            if let pattern = configuration.readySignalPattern, !pattern.isEmpty {
-                                DetailRow(label: "Ready Signal", value: pattern)
-                            } else {
-                                Text("Not configured")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            if let pattern = configuration.portDetectionPattern, !pattern.isEmpty {
-                                DetailRow(label: "Port", value: pattern)
-                            }
-                        }
-                        .padding(.leading, 28)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                
-                Divider()
-                
-                // Actions
-                VStack(spacing: 8) {
-                    Button(action: onRun) {
-                        HStack {
-                            Image(systemName: "play.fill")
-                            Text("Run")
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    
-                    Button(action: onGenerate) {
-                        HStack {
-                            if isGenerating {
-                                ProgressView()
-                                    .controlSize(.small)
-                                Text("Generating…")
-                            } else {
-                                Image(systemName: "square.and.arrow.up")
-                                Text("Use as standalone app...")
-                            }
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-                    .disabled(isGenerating)
-                }
-                
-                // Metadata
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Created \(formatDate(configuration.createdAt))")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                    Text(configuration.id.uuidString)
-                        .font(.caption2)
-                        .foregroundColor(.secondary.opacity(0.7))
-                        .textSelection(.enabled)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
+                .padding(24)
             }
-            .padding(24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            actionBar
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .controlBackgroundColor))
     }
-    
+
+    // MARK: - Header
+
+    private var header: some View {
+        HStack(spacing: 14) {
+            ConfigIconView(configuration: configuration, size: 52, cornerRadius: 12)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(configuration.name)
+                    .font(.title)
+                    .fontWeight(.bold)
+                Text(scriptSourceLabel)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    // MARK: - Cards
+
+    private var launchScriptCard: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 8) {
+                switch configuration.scriptSource {
+                case .command:
+                    DetailRow(label: "Executable", value: configuration.command)
+                    if !configuration.arguments.isEmpty {
+                        DetailRow(label: "Arguments", value: configuration.arguments.joined(separator: " "))
+                    }
+                case .file:
+                    DetailRow(label: "Script", value: configuration.command)
+                    if !configuration.arguments.isEmpty {
+                        DetailRow(label: "Arguments", value: configuration.arguments.joined(separator: " "))
+                    }
+                case .inline:
+                    if let content = configuration.inlineScriptContent, !content.isEmpty {
+                        Text(content)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(5)
+                            .textSelection(.enabled)
+                    }
+                }
+
+                if let wd = configuration.workingDirectory, !wd.isEmpty {
+                    DetailRow(label: "Working Dir", value: wd)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(4)
+        } label: {
+            Label("Launch Script", systemImage: "terminal")
+        }
+    }
+
+    private var networkCard: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 4) {
+                switch configuration.urlDetectionMode {
+                case .automatic:
+                    // In automatic mode localhostURL is only a fallback, so showing it would
+                    // misrepresent the default as the real address. The actual URL is discovered
+                    // when the server runs.
+                    Label("Detected automatically when the server starts", systemImage: "wand.and.stars")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                case .fixed:
+                    if let url = configuration.localhostURL, !url.isEmpty {
+                        Text(url)
+                            .font(.callout)
+                            .textSelection(.enabled)
+                    } else {
+                        Text("Not configured")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(4)
+        } label: {
+            Label("Network", systemImage: "network")
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var detectionCard: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 8) {
+                if let pattern = configuration.readySignalPattern, !pattern.isEmpty {
+                    DetailRow(label: "Ready Signal", value: pattern)
+                } else {
+                    Text("Not configured")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if let pattern = configuration.portDetectionPattern, !pattern.isEmpty {
+                    DetailRow(label: "Port", value: pattern)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(4)
+        } label: {
+            Label("Detection", systemImage: "magnifyingglass")
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    // MARK: - Metadata Footer
+
+    private var metadataFooter: some View {
+        HStack {
+            Text("Created \(formatDate(configuration.createdAt))")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Spacer()
+
+            Button {
+                let pasteboard = NSPasteboard.general
+                pasteboard.clearContents()
+                pasteboard.setString(configuration.id.uuidString, forType: .string)
+            } label: {
+                Label("Copy ID", systemImage: "doc.on.doc")
+                    .font(.caption)
+            }
+            .buttonStyle(.borderless)
+            .help(configuration.id.uuidString)
+        }
+        .padding(.top, 4)
+    }
+
+    // MARK: - Action Bar
+
+    private var actionBar: some View {
+        HStack(spacing: 8) {
+            Button(action: onRun) {
+                Label("Run", systemImage: "play.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+
+            Button(action: onGenerate) {
+                HStack {
+                    if isGenerating {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Generating…")
+                    } else {
+                        Image(systemName: "square.and.arrow.up")
+                        Text("Use as standalone app...")
+                    }
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .disabled(isGenerating)
+        }
+        .controlSize(.large)
+        .padding(.horizontal, 24)
+        .padding(.vertical, 12)
+        .background(.bar)
+    }
+
     private func formatDate(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium

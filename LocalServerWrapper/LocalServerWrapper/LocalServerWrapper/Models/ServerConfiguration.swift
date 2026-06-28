@@ -21,6 +21,16 @@ enum ScriptSource: String, Codable {
     case inline    // typed inline script
 }
 
+/// How the runtime determines which URL to load once the server has launched.
+enum URLDetectionMode: String, Codable {
+    /// Observe the OS for the port the server's process tree actually binds (falling back to
+    /// scanning the server's output, then to `localhostURL`). The user doesn't have to know the
+    /// port ahead of time, and dynamic/auto-incremented ports are handled automatically.
+    case automatic
+    /// Use `localhostURL` exactly as entered, without trying to detect the port.
+    case fixed
+}
+
 /// Represents a server configuration used by the manager (to generate an app bundle) and by the
 /// runtime (to launch the server).
 struct ServerConfiguration: Codable, Identifiable, Equatable, Hashable {
@@ -37,9 +47,18 @@ struct ServerConfiguration: Codable, Identifiable, Equatable, Hashable {
     var arguments: [String]
     
     /// The localhost URL pattern (e.g., "http://localhost:3000")
-    /// If nil, port detection must be configured
+    /// In `.fixed` mode this is loaded as-is. In `.automatic` mode it is only a fallback (and the
+    /// source of the scheme/host) used if OS port observation and output scanning both come up empty.
     var localhostURL: String?
-    
+
+    /// How the runtime resolves the server URL once it launches. Defaults to `.automatic`.
+    var urlDetectionMode: URLDetectionMode
+
+    /// When false (default), the server is launched attached to a pseudo-terminal so scripts that
+    /// only start when they detect an interactive terminal behave normally. Set true to fall back to
+    /// plain pipes for the rare server that misbehaves under a TTY.
+    var runWithoutTerminal: Bool
+
     /// Regular expression pattern to detect when the server is ready
     /// (e.g., "Server listening on", "Ready on")
     var readySignalPattern: String?
@@ -88,6 +107,8 @@ struct ServerConfiguration: Codable, Identifiable, Equatable, Hashable {
         command: String,
         arguments: [String] = [],
         localhostURL: String? = nil,
+        urlDetectionMode: URLDetectionMode = .automatic,
+        runWithoutTerminal: Bool = false,
         readySignalPattern: String? = nil,
         portDetectionPattern: String? = nil,
         customIconPath: String? = nil,
@@ -100,6 +121,8 @@ struct ServerConfiguration: Codable, Identifiable, Equatable, Hashable {
         self.command = command
         self.arguments = arguments
         self.localhostURL = localhostURL
+        self.urlDetectionMode = urlDetectionMode
+        self.runWithoutTerminal = runWithoutTerminal
         self.readySignalPattern = readySignalPattern
         self.portDetectionPattern = portDetectionPattern
         self.customIconPath = customIconPath
@@ -124,6 +147,8 @@ extension ServerConfiguration {
         case command
         case arguments
         case localhostURL
+        case urlDetectionMode
+        case runWithoutTerminal
         case readySignalPattern
         case portDetectionPattern
         case customIconPath
@@ -141,6 +166,8 @@ extension ServerConfiguration {
         command = try container.decode(String.self, forKey: .command)
         arguments = try container.decodeIfPresent([String].self, forKey: .arguments) ?? []
         localhostURL = try container.decodeIfPresent(String.self, forKey: .localhostURL)
+        urlDetectionMode = try container.decodeIfPresent(URLDetectionMode.self, forKey: .urlDetectionMode) ?? .automatic
+        runWithoutTerminal = try container.decodeIfPresent(Bool.self, forKey: .runWithoutTerminal) ?? false
         readySignalPattern = try container.decodeIfPresent(String.self, forKey: .readySignalPattern)
         portDetectionPattern = try container.decodeIfPresent(String.self, forKey: .portDetectionPattern)
         customIconPath = try container.decodeIfPresent(String.self, forKey: .customIconPath)

@@ -222,6 +222,42 @@ final class ProcessManagerTests: XCTestCase {
         XCTAssertTrue(processManager.output.contains("Error message"), "Output should contain stderr message")
     }
     
+    // MARK: - Pseudo-terminal Tests
+
+    // We probe the tty via `test -t 1`'s exit status rather than echoing literal "TTY"/"PIPE"
+    // markers: the startup message echoes the whole command line, so any literal marker in the
+    // command would also appear in the output. The status digit ("tty_status=0/1") only appears in
+    // the child's real output, never in the echoed `...=$?` command text.
+
+    func testPseudoTerminalMakesChildSeeATTY() throws {
+        // Under the default PTY launch, a script's `[ -t 1 ]` check must pass — this is what makes
+        // terminal-gated servers (e.g. Lumiverse) actually start.
+        try processManager.start(command: "/bin/sh", arguments: ["-c", "test -t 1; echo tty_status=$?"], usePseudoTerminal: true)
+
+        let expectation = XCTestExpectation(description: "Process completes")
+        Task {
+            while processManager.isRunning { try? await Task.sleep(nanoseconds: 100_000_000) }
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 5.0)
+
+        XCTAssertTrue(processManager.output.contains("tty_status=0"), "Child should detect an interactive terminal (status 0) under PTY mode")
+    }
+
+    func testPipeModeChildSeesNoTTY() throws {
+        // The escape-hatch (runWithoutTerminal) must still behave like a plain pipe.
+        try processManager.start(command: "/bin/sh", arguments: ["-c", "test -t 1; echo tty_status=$?"], usePseudoTerminal: false)
+
+        let expectation = XCTestExpectation(description: "Process completes")
+        Task {
+            while processManager.isRunning { try? await Task.sleep(nanoseconds: 100_000_000) }
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 5.0)
+
+        XCTAssertTrue(processManager.output.contains("tty_status=1"), "Child should see a pipe (status 1) when PTY is disabled")
+    }
+
     func testNonZeroExitCode() throws {
         // Start a command that exits with non-zero code
         try processManager.start(command: "/bin/sh", arguments: ["-c", "exit 42"])

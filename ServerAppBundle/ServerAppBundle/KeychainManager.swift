@@ -15,6 +15,11 @@ struct KeychainManager {
     /// Separate Keychain account holding the per-install random key for the UserDefaults fallback.
     private static let fallbackKeyAccount = "fallback-encryption-key"
 
+    /// OSStatus from the most recent failed secure write. The bundle is ad-hoc signed, so its code
+    /// identity changes on every regeneration; this is surfaced to the user (and logs) to turn an
+    /// opaque "couldn't save" into an actionable code instead of guesswork.
+    private(set) static var lastErrorStatus: OSStatus = errSecSuccess
+
     private static var serviceName: String {
         Bundle.main.bundleIdentifier ?? "com.localserverwrapper.unknown"
     }
@@ -32,6 +37,7 @@ struct KeychainManager {
         }
 
         if saveToKeychain(data) {
+            lastErrorStatus = errSecSuccess
             UserDefaults.standard.removeObject(forKey: accountName)
             return true
         }
@@ -40,10 +46,11 @@ struct KeychainManager {
         // per-install random key held in the Keychain, never a key derivable from the public
         // bundle identifier. If we can't get that key, refuse to persist (no guessable fallback).
         guard let key = getOrCreateFallbackKey(), let encrypted = encrypt(data, using: key) else {
-            os_log(.error, log: logger, "Secure storage unavailable, credentials NOT persisted")
+            os_log(.error, log: logger, "Secure storage unavailable (status %d), credentials NOT persisted", lastErrorStatus)
             return false
         }
 
+        lastErrorStatus = errSecSuccess
         UserDefaults.standard.set(encrypted, forKey: accountName)
         os_log(.info, log: logger, "Credentials saved to encrypted UserDefaults fallback (per-install key)")
         return true
@@ -94,13 +101,24 @@ struct KeychainManager {
         addQuery[kSecValueData as String] = data
         addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
 
-        let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+        var addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+
+        // The bundle is re-signed ad-hoc on every regeneration, so an item written by a previous
+        // build carries an ACL bound to a now-defunct code identity: SecItemUpdate is denied and
+        // SecItemAdd reports the item as a duplicate. Neither can touch it, so remove the stale
+        // item and add a fresh one under the current identity.
+        if addStatus == errSecDuplicateItem {
+            SecItemDelete(query as CFDictionary)
+            addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+        }
+
         if addStatus == errSecSuccess {
             os_log(.info, log: logger, "Credentials saved to Keychain")
             return true
         }
 
         os_log(.error, log: logger, "Keychain save failed: update=%d add=%d", updateStatus, addStatus)
+        lastErrorStatus = addStatus
         return false
     }
 
@@ -174,9 +192,24 @@ struct KeychainManager {
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
         ]
 
-        let status = SecItemAdd(addQuery as CFDictionary, nil)
+        var status = SecItemAdd(addQuery as CFDictionary, nil)
+
+        // Same stale-identity trap as the credential item: a key left by a previous ad-hoc build
+        // is unreadable (loadFallbackKey returned nil above) yet still blocks the add as a
+        // duplicate. Drop it and recreate — any data encrypted under the old, now-unreadable key
+        // was already unrecoverable, so nothing usable is lost.
+        if status == errSecDuplicateItem {
+            SecItemDelete([
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: serviceName,
+                kSecAttrAccount as String: fallbackKeyAccount
+            ] as CFDictionary)
+            status = SecItemAdd(addQuery as CFDictionary, nil)
+        }
+
         guard status == errSecSuccess else {
             os_log(.error, log: logger, "Failed to store fallback encryption key: %d", status)
+            lastErrorStatus = status
             return nil
         }
         return key

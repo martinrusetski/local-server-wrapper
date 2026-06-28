@@ -34,8 +34,10 @@ protocol ProcessManagerProtocol: ObservableObject {
     ///   - command: The command to execute (e.g., "/usr/bin/npm", "python3")
     ///   - arguments: The command-line arguments
     ///   - workingDirectory: Directory where the process runs (nil for default)
+    ///   - usePseudoTerminal: When true, attach the child to a pseudo-terminal so it behaves as if
+    ///     launched in a real terminal (see PseudoTerminal). When false, use plain pipes.
     /// - Throws: ProcessError if the process fails to start
-    func start(command: String, arguments: [String], workingDirectory: String?) throws
+    func start(command: String, arguments: [String], workingDirectory: String?, usePseudoTerminal: Bool) throws
     
     /// Gracefully terminate the process (SIGTERM)
     func terminate()
@@ -93,6 +95,9 @@ class ProcessManager: ProcessManagerProtocol {
     private var outputPipe: Pipe?
     private var errorPipe: Pipe?
     private var inputPipe: Pipe?
+
+    /// Pseudo-terminal backing the child's stdio when launched in terminal mode. nil in pipe mode.
+    private var pty: PseudoTerminal?
     private var autoAnswerTimer: Timer?
     private var terminationObserver: NSObjectProtocol?
     /// Scheduled SIGKILL escalation for a terminating process tree (TASK-2). Captures the PID
@@ -131,8 +136,8 @@ class ProcessManager: ProcessManagerProtocol {
     
     // MARK: - Public Methods
     
-    func start(command: String, arguments: [String], workingDirectory: String? = nil) throws {
-        os_log(.info, log: logger, "Starting process: %{public}@", command)
+    func start(command: String, arguments: [String], workingDirectory: String? = nil, usePseudoTerminal: Bool = true) throws {
+        os_log(.info, log: logger, "Starting process: %{public}@ (pty: %{public}@)", command, usePseudoTerminal ? "yes" : "no")
         
         // Check if already running
         guard !isRunning else {
@@ -166,52 +171,68 @@ class ProcessManager: ProcessManagerProtocol {
         for (key, value) in additionalEnvironment {
             environment[key] = value
         }
-        newProcess.environment = environment
-        
-        // Set up pipes for stdout and stderr
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        newProcess.standardOutput = stdoutPipe
-        newProcess.standardError = stderrPipe
-        
-        // Set up stdin pipe for interactive input
-        let stdinPipe = Pipe()
-        newProcess.standardInput = stdinPipe
-        self.inputPipe = stdinPipe
-        
-        // Store pipes for cleanup
-        self.outputPipe = stdoutPipe
-        self.errorPipe = stderrPipe
-        
-        // Decode each stream across read-chunk boundaries. `availableData` can split a multi-byte
-        // UTF-8 character; `String(data:encoding:.utf8)` returns nil for that chunk and the whole
-        // read used to be dropped (garbled/missing output). Each decoder is captured by exactly one
-        // handler and the readability queue is serial per pipe, so it is accessed serially.
-        let stdoutDecoder = UTF8StreamDecoder()
-        let stderrDecoder = UTF8StreamDecoder()
 
-        // Set up output capture for stdout
-        stdoutPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return }
-            let string = stdoutDecoder.decode(data)
-            guard !string.isEmpty else { return }
-            Task { @MainActor [weak self] in
-                self?.appendOutput(string)
+        // Attach stdio to either a pseudo-terminal (so the child thinks it's interactive) or plain
+        // pipes. The PTY path is what makes TTY-gated launch scripts actually start their server.
+        let activePTY = usePseudoTerminal ? PseudoTerminal() : nil
+        if let activePTY {
+            // Advertise a real terminal so scripts that check $TERM (not just isatty) cooperate too.
+            environment["TERM"] = environment["TERM"] ?? "xterm-256color"
+            newProcess.environment = environment
+
+            // One terminal carries stdin, stdout and stderr — exactly like a shell session.
+            newProcess.standardInput = activePTY.slaveHandle
+            newProcess.standardOutput = activePTY.slaveHandle
+            newProcess.standardError = activePTY.slaveHandle
+            self.pty = activePTY
+        } else {
+            newProcess.environment = environment
+
+            // Set up pipes for stdout and stderr
+            let stdoutPipe = Pipe()
+            let stderrPipe = Pipe()
+            newProcess.standardOutput = stdoutPipe
+            newProcess.standardError = stderrPipe
+
+            // Set up stdin pipe for interactive input
+            let stdinPipe = Pipe()
+            newProcess.standardInput = stdinPipe
+            self.inputPipe = stdinPipe
+
+            // Store pipes for cleanup
+            self.outputPipe = stdoutPipe
+            self.errorPipe = stderrPipe
+
+            // Decode each stream across read-chunk boundaries. `availableData` can split a multi-byte
+            // UTF-8 character; `String(data:encoding:.utf8)` returns nil for that chunk and the whole
+            // read used to be dropped (garbled/missing output). Each decoder is captured by exactly one
+            // handler and the readability queue is serial per pipe, so it is accessed serially.
+            let stdoutDecoder = UTF8StreamDecoder()
+            let stderrDecoder = UTF8StreamDecoder()
+
+            // Set up output capture for stdout
+            stdoutPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+                let data = handle.availableData
+                guard !data.isEmpty else { return }
+                let string = stdoutDecoder.decode(data)
+                guard !string.isEmpty else { return }
+                Task { @MainActor [weak self] in
+                    self?.appendOutput(string)
+                }
+            }
+
+            // Set up output capture for stderr
+            stderrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+                let data = handle.availableData
+                guard !data.isEmpty else { return }
+                let string = stderrDecoder.decode(data)
+                guard !string.isEmpty else { return }
+                Task { @MainActor [weak self] in
+                    self?.appendOutput(string)
+                }
             }
         }
 
-        // Set up output capture for stderr
-        stderrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return }
-            let string = stderrDecoder.decode(data)
-            guard !string.isEmpty else { return }
-            Task { @MainActor [weak self] in
-                self?.appendOutput(string)
-            }
-        }
-        
         // Observe process termination
         terminationObserver = NotificationCenter.default.addObserver(
             forName: Process.didTerminateNotification,
@@ -234,7 +255,21 @@ class ProcessManager: ProcessManagerProtocol {
             self.process = newProcess
             self.isRunning = true
             self.exitCode = nil
-            
+
+            // In PTY mode, drop the parent's slave copy (so the master sees EOF when the child exits)
+            // and begin reading the merged terminal output. Same decode→appendOutput pipeline as pipes.
+            if let activePTY {
+                activePTY.closeSlaveAfterLaunch()
+                let decoder = UTF8StreamDecoder()
+                activePTY.readInBackground(onData: { [weak self] data in
+                    let string = decoder.decode(data)
+                    guard !string.isEmpty else { return }
+                    Task { @MainActor in self?.appendOutput(string) }
+                }, onEnd: {
+                    activePTY.closeMaster()
+                })
+            }
+
             os_log(.info, log: logger, "Process started successfully (PID: %d)", newProcess.processIdentifier)
 
             // Auto-answering is OFF by default (TASK-10). Blindly writing newlines to stdin can
@@ -251,6 +286,14 @@ class ProcessManager: ProcessManagerProtocol {
         }
     }
     
+    /// PID of the launched root process (the shell / npm / python that was spawned), or nil when
+    /// nothing is running. Automatic port detection scans this PID's process tree for the server's
+    /// listening socket.
+    var rootProcessIdentifier: pid_t? {
+        guard isRunning, let process = process, process.isRunning else { return nil }
+        return process.processIdentifier
+    }
+
     func terminate() {
         guard let process = process, isRunning else {
             os_log(.info, log: logger, "No process to terminate")
@@ -341,8 +384,10 @@ class ProcessManager: ProcessManagerProtocol {
     }
     
     func writeInput(_ text: String) {
-        guard let pipe = inputPipe, isRunning, !text.isEmpty else { return }
-        if let data = (text + "\n").data(using: .utf8) {
+        guard isRunning, !text.isEmpty, let data = (text + "\n").data(using: .utf8) else { return }
+        if let pty = pty {
+            pty.write(data)
+        } else if let pipe = inputPipe {
             pipe.fileHandleForWriting.write(data)
         }
     }
@@ -353,8 +398,11 @@ class ProcessManager: ProcessManagerProtocol {
         
         autoAnswerTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
             guard let self = self, self.isAutoAnswering, self.isRunning else { return }
-            if let pipe = self.inputPipe, let data = "\n".data(using: .utf8) {
-                pipe.fileHandleForWriting.write(data)
+            let newline = Data("\n".utf8)
+            if let pty = self.pty {
+                pty.write(newline)
+            } else if let pipe = self.inputPipe {
+                pipe.fileHandleForWriting.write(newline)
             }
         }
     }
@@ -424,7 +472,11 @@ class ProcessManager: ProcessManagerProtocol {
         outputPipe = nil
         errorPipe = nil
         inputPipe = nil
-        
+
+        // Drop our reference to the PTY. The background reader holds its own strong reference, so it
+        // keeps draining until the child's output ends (EOF), then closes the master itself.
+        pty = nil
+
         // Clear process reference
         process = nil
     }

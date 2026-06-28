@@ -43,6 +43,12 @@ class AppState: ObservableObject {
     
     /// Whether to show the timeout alert
     @Published var showTimeoutAlert: Bool = false
+
+    /// Whether to show the startup-failure diagnostic (process exited before becoming ready)
+    @Published var showStartupFailureAlert: Bool = false
+
+    /// Human-readable diagnostic for a server that exited before it ever became ready
+    @Published var startupFailureMessage: String?
     
     /// Whether the sidebar is visible
     @Published var isSidebarVisible: Bool = false
@@ -73,11 +79,21 @@ class AppState: ObservableObject {
     /// terminated (TASK-4). Replaced on each restart so it can't pile up.
     private var restartCancellable: AnyCancellable?
     
+    /// Set while a termination is expected (user stop, restart, or quit) so the exit-before-ready
+    /// watchdog doesn't misreport an intentional shutdown as a startup failure.
+    private var expectingTermination = false
+
     /// Timer for ready signal timeout detection
     private var timeoutTimer: Timer?
-    
+
     /// Timeout duration in seconds (default: 30)
     private let timeoutDuration: TimeInterval = 30
+
+    /// Repeating timer that polls the OS for the server's listening port (automatic mode only).
+    private var portPollTimer: Timer?
+
+    /// How often automatic mode asks the OS which port the server is listening on, while waiting.
+    private let portPollInterval: TimeInterval = 0.35
     
     /// Initialize app state with a configuration
     /// - Parameter configuration: The server configuration to use
@@ -96,7 +112,8 @@ class AppState: ObservableObject {
         self.readinessDetector = ReadinessDetector(
             readySignalPattern: configuration.readySignalPattern,
             portDetectionPattern: configuration.portDetectionPattern,
-            baseURL: configuration.localhostURL ?? "http://localhost:3000"
+            baseURL: configuration.localhostURL ?? "http://localhost:3000",
+            mode: configuration.urlDetectionMode
         )
         
         // Initialize WebViewModel
@@ -213,8 +230,9 @@ class AppState: ObservableObject {
         } else {
             // Secure storage was unavailable — don't keep it in memory pretending it was saved (TASK-7).
             credentials.removeLast()
-            os_log(.error, log: logger, "Could not store credential securely")
-            errorMessage = "Couldn't store your credentials securely, so they were not saved."
+            let status = KeychainManager.lastErrorStatus
+            os_log(.error, log: logger, "Could not store credential securely (status %d)", status)
+            errorMessage = "Couldn't store your credentials securely, so they were not saved. (Keychain error \(status))"
             showErrorAlert = true
         }
     }
@@ -245,21 +263,26 @@ class AppState: ObservableObject {
                 // When server becomes ready and we have a URL, load it in the browser
                 if isReady, let url = detectedURL {
                     self?.webViewModel.load(url: url)
-                    // Cancel timeout timer since server is ready
+                    // Cancel timeout timer + port polling since server is ready
                     self?.cancelTimeoutTimer()
+                    self?.cancelPortPolling()
                     // Hide sidebar when browser is ready
                     self?.isSidebarVisible = false
                 }
             }
             .store(in: &cancellables)
         
-        // Monitor process exit code for non-zero exits
+        // Watch for the process exiting. Any exit makes the readiness timeout moot, so cancel it.
+        // If the process exited before the server ever became ready (and we weren't expecting it
+        // to stop), surface a diagnostic — otherwise the window stays stuck on "Starting Server..."
+        // with no explanation, because the ready-signal timeout only fires while the process is
+        // still running.
         processManager.$exitCode
             .sink { [weak self] exitCode in
-                guard let exitCode = exitCode, exitCode != 0 else { return }
-                // Non-zero exit code is already highlighted in TerminalView
-                // We could add additional handling here if needed
-                self?.cancelTimeoutTimer()
+                guard let self = self, let exitCode = exitCode else { return }
+                self.cancelTimeoutTimer()
+                self.cancelPortPolling()
+                self.handlePossibleStartupFailure(exitCode: exitCode)
             }
             .store(in: &cancellables)
         
@@ -275,7 +298,12 @@ class AppState: ObservableObject {
     /// This should be called when the app launches (typically from ContentView.onAppear)
     func startServer() {
         os_log(.info, log: logger, "Starting server")
-        
+
+        // Fresh run: we now expect the process to stay up, and any prior startup diagnostic is stale.
+        expectingTermination = false
+        showStartupFailureAlert = false
+        startupFailureMessage = nil
+
         do {
             let resolved = ScriptResolver.resolve(configuration)
             
@@ -286,12 +314,20 @@ class AppState: ObservableObject {
             try processManager.start(
                 command: resolved.command,
                 arguments: resolved.arguments,
-                workingDirectory: configuration.workingDirectory
+                workingDirectory: configuration.workingDirectory,
+                usePseudoTerminal: !configuration.runWithoutTerminal
             )
             
-            // Start timeout timer if ready signal pattern is configured
-            if configuration.readySignalPattern != nil && !configuration.readySignalPattern!.isEmpty {
+            // Start the timeout watchdog whenever we're actually waiting for a readiness signal.
+            // (In fixed mode with no ready pattern the detector is already ready, so we don't wait.)
+            if !readinessDetector.isReady {
                 startTimeoutTimer()
+            }
+
+            // In automatic mode, observe the OS for the server's listening port in parallel with
+            // output scanning — this is the primary, zero-config readiness/port signal.
+            if configuration.urlDetectionMode == .automatic {
+                startPortPolling()
             }
         } catch let error as ProcessError {
             // Handle specific process errors with user-friendly messages
@@ -312,6 +348,9 @@ class AppState: ObservableObject {
     func restartServer() {
         os_log(.info, log: logger, "Restarting server")
 
+        // The old process is about to be torn down on purpose — don't let the watchdog flag it.
+        // startServer() clears this flag again for the fresh process.
+        expectingTermination = true
         readinessDetector.reset()
 
         guard processManager.isRunning else {
@@ -386,11 +425,74 @@ class AppState: ObservableObject {
         }
     }
     
+    /// Surface an actionable diagnostic when the process exits before the server ever becomes ready.
+    /// Skipped for expected terminations (user stop, restart, quit) and once the server is ready, so
+    /// only genuine startup failures are reported.
+    private func handlePossibleStartupFailure(exitCode: Int32) {
+        guard !expectingTermination, !readinessDetector.isReady else { return }
+
+        os_log(.error, log: logger, "Server exited (code %d) before becoming ready", exitCode)
+
+        let name = configuration.name
+        if exitCode == 0 {
+            startupFailureMessage = """
+            \(name) exited immediately without signaling that it was ready.
+
+            A clean exit (code 0) on startup usually means the launch script only starts the server when it's attached to an interactive terminal. This app captures output through a pipe, which some scripts treat as non-interactive — so they skip starting the server, even though running the same script in Terminal works.
+
+            Try adding a non-interactive flag to the configuration's arguments (for example, --no-runner) and regenerate the app. The terminal output below shows what the script printed.
+            """
+        } else {
+            startupFailureMessage = """
+            \(name) exited with code \(exitCode) before becoming ready.
+
+            The process stopped before it signaled that it was listening, which usually means it failed to start. Check the terminal output below for the error.
+            """
+        }
+        showStartupFailureAlert = true
+    }
+
     /// Cancel the timeout timer
     private func cancelTimeoutTimer() {
         os_log(.debug, log: logger, "Cancelling timeout timer")
         timeoutTimer?.invalidate()
         timeoutTimer = nil
+    }
+
+    /// Begin polling the OS for the server's listening port (automatic mode).
+    private func startPortPolling() {
+        cancelPortPolling()
+        os_log(.debug, log: logger, "Starting OS port polling (every %.2fs)", portPollInterval)
+        portPollTimer = Timer.scheduledTimer(withTimeInterval: portPollInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.pollListeningPort() }
+        }
+    }
+
+    /// One poll tick: compute the server's process tree on the main actor (cheap sysctl), then run
+    /// `lsof` off the main actor (it spawns a subprocess) and feed any discovered port back to the
+    /// readiness detector. Stops once the server is ready or the process is gone.
+    private func pollListeningPort() {
+        guard !readinessDetector.isReady else { cancelPortPolling(); return }
+        guard let rootPID = processManager.rootProcessIdentifier else { cancelPortPolling(); return }
+
+        let tree = PortDetector.processTree(rootPID: rootPID)
+        Task.detached(priority: .utility) { [weak self] in
+            let ports = PortDetector.listeningPorts(for: tree)
+            guard let port = ports.first else { return }
+            await MainActor.run {
+                guard let self = self, !self.readinessDetector.isReady else { return }
+                self.readinessDetector.noteListeningPort(port)
+                self.cancelPortPolling()
+            }
+        }
+    }
+
+    /// Stop OS port polling.
+    private func cancelPortPolling() {
+        guard portPollTimer != nil else { return }
+        os_log(.debug, log: logger, "Cancelling OS port polling")
+        portPollTimer?.invalidate()
+        portPollTimer = nil
     }
     
     /// Manually open the browser with the configured URL
@@ -410,6 +512,8 @@ class AppState: ObservableObject {
     /// Terminate the server process gracefully
     func stopServer() {
         os_log(.info, log: logger, "Stopping server")
+        expectingTermination = true
+        cancelPortPolling()
         processManager.terminate()
     }
 
@@ -422,7 +526,9 @@ class AppState: ObservableObject {
     /// the app's `applicationWillTerminate` safety net — so the port is always freed (TASK-2).
     func prepareForQuit() {
         isQuitting = true
+        expectingTermination = true
         showCloseConfirmation = false
+        cancelPortPolling()
         processManager.terminateSynchronously()
     }
 

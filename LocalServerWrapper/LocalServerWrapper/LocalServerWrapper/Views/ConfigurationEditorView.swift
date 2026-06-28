@@ -32,6 +32,8 @@ struct ConfigurationEditorView: View {
     @State private var command: String
     @State private var arguments: String
     @State private var localhostURL: String
+    @State private var urlDetectionMode: URLDetectionMode
+    @State private var runWithoutTerminal: Bool
     @State private var readySignalPattern: String
     @State private var portDetectionPattern: String
     @State private var customIconPath: String
@@ -52,6 +54,12 @@ struct ConfigurationEditorView: View {
     @State private var showingDirectoryPicker = false
     @State private var showingError = false
     @State private var errorMessage: String?
+
+    /// Whether the "Advanced options" disclosure group is expanded
+    @State private var showAdvanced: Bool
+
+    /// Drives the "Test launch" feature: runs the server once to discover its URL.
+    @StateObject private var probe = ServerProbe()
     
     // MARK: - Initialization
     
@@ -70,23 +78,35 @@ struct ConfigurationEditorView: View {
             _command = State(initialValue: config.command)
             _arguments = State(initialValue: config.arguments.joined(separator: " "))
             _localhostURL = State(initialValue: config.localhostURL ?? "")
+            _urlDetectionMode = State(initialValue: config.urlDetectionMode)
+            _runWithoutTerminal = State(initialValue: config.runWithoutTerminal)
             _readySignalPattern = State(initialValue: config.readySignalPattern ?? "")
             _portDetectionPattern = State(initialValue: config.portDetectionPattern ?? "")
             _customIconPath = State(initialValue: config.customIconPath ?? "")
             _workingDirectory = State(initialValue: config.workingDirectory ?? "")
             _scriptSource = State(initialValue: config.scriptSource)
             _inlineScriptContent = State(initialValue: config.inlineScriptContent ?? "")
+
+            // Auto-expand Advanced if the existing config already uses any advanced option
+            let hasAdvanced = !(config.readySignalPattern ?? "").isEmpty
+                || !(config.portDetectionPattern ?? "").isEmpty
+                || !(config.workingDirectory ?? "").isEmpty
+                || config.runWithoutTerminal
+            _showAdvanced = State(initialValue: hasAdvanced)
         } else {
             _name = State(initialValue: "")
             _command = State(initialValue: "")
             _arguments = State(initialValue: "")
             _localhostURL = State(initialValue: "http://localhost:3000")
+            _urlDetectionMode = State(initialValue: .automatic)
+            _runWithoutTerminal = State(initialValue: false)
             _readySignalPattern = State(initialValue: "")
             _portDetectionPattern = State(initialValue: "")
             _customIconPath = State(initialValue: "")
             _workingDirectory = State(initialValue: "")
             _scriptSource = State(initialValue: .command)
             _inlineScriptContent = State(initialValue: "")
+            _showAdvanced = State(initialValue: false)
         }
     }
     
@@ -95,42 +115,43 @@ struct ConfigurationEditorView: View {
     var body: some View {
         NavigationStack {
             Form {
-                // Configuration Name Section
+                // Identity: icon well + name
                 Section {
-                    VStack(alignment: .leading, spacing: 4) {
-                        TextField("Configuration Name", text: $name)
-                            .textFieldStyle(.roundedBorder)
-                            .onChange(of: name) { _ in
-                                validateName()
+                    HStack(alignment: .center, spacing: 14) {
+                        iconWell
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            TextField("Name", text: $name, prompt: Text("My Dev Server"))
+                                .textFieldStyle(.roundedBorder)
+                                .onChange(of: name) { _ in
+                                    validateName()
+                                }
+                                .accessibilityLabel("Configuration Name")
+                                .accessibilityHint("Enter a unique name for this server configuration")
+                                .accessibilityValue(name.isEmpty ? "Empty" : name)
+
+                            if let error = nameError {
+                                Text(error)
+                                    .font(.caption)
+                                    .foregroundStyle(.red)
+                            } else if let error = iconError {
+                                Text(error)
+                                    .font(.caption)
+                                    .foregroundStyle(.red)
                             }
-                            .accessibilityLabel("Configuration Name")
-                            .accessibilityHint("Enter a unique name for this server configuration")
-                            .accessibilityValue(name.isEmpty ? "Empty" : name)
-                        
-                        if let error = nameError {
-                            Text(error)
-                                .font(.caption)
-                                .foregroundColor(.red)
                         }
                     }
-                } header: {
-                    Text("Configuration")
-                } footer: {
-                    Text("Name is required")
                 }
-                
-                // Launch Script Section
+
+                // Launch
                 Section {
-                    Picker("Launch Method", selection: $scriptSource) {
-                        Text("Script File — pick a .sh file on disk").tag(ScriptSource.file)
-                        Text("Inline Script — type a script directly").tag(ScriptSource.inline)
-                        Text("Manual Command — specify executable + args").tag(ScriptSource.command)
+                    Picker("Launch method", selection: $scriptSource) {
+                        Text("Command").tag(ScriptSource.command)
+                        Text("Script File").tag(ScriptSource.file)
+                        Text("Inline").tag(ScriptSource.inline)
                     }
-                    .pickerStyle(.radioGroup)
-                    
-                    Divider()
-                        .padding(.vertical, 4)
-                    
+                    .pickerStyle(.segmented)
+
                     switch scriptSource {
                     case .file:
                         scriptFileFields
@@ -140,133 +161,88 @@ struct ConfigurationEditorView: View {
                         manualCommandFields
                     }
                 } header: {
-                    Text("Launch Script")
+                    Text("Launch")
                 } footer: {
                     launchScriptFooter
                 }
-                
-                // Server Configuration Section
+
+                // Server URL
                 Section {
-                    VStack(alignment: .leading, spacing: 4) {
-                        TextField("Localhost URL", text: $localhostURL, prompt: Text("http://localhost:3000"))
-                            .textFieldStyle(.roundedBorder)
-                            .onChange(of: localhostURL) { _ in
-                                validateURL()
-                            }
-                            .accessibilityLabel("Localhost URL")
-                            .accessibilityHint("Enter the URL where your server will be accessible")
-                            .accessibilityValue(localhostURL.isEmpty ? "Empty" : localhostURL)
-                        
-                        if let error = urlError {
-                            Text(error)
-                                .font(.caption)
-                                .foregroundColor(.red)
-                        } else {
-                            Text("The URL where your server will be accessible")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
+                    Picker("Address", selection: $urlDetectionMode) {
+                        Text("Detect automatically").tag(URLDetectionMode.automatic)
+                        Text("Fixed URL").tag(URLDetectionMode.fixed)
                     }
-                    
-                    VStack(alignment: .leading, spacing: 4) {
-                        TextField("Ready Signal Pattern", text: $readySignalPattern, prompt: Text("e.g., Server listening on, Ready on"))
-                            .textFieldStyle(.roundedBorder)
-                            .onChange(of: readySignalPattern) { _ in
-                                validateReadySignal()
-                            }
-                            .accessibilityLabel("Ready Signal Pattern")
-                            .accessibilityHint("Enter a regular expression to detect when the server is ready")
-                            .accessibilityValue(readySignalPattern.isEmpty ? "Empty" : readySignalPattern)
-                        
-                        if let error = readySignalError {
-                            Text(error)
-                                .font(.caption)
-                                .foregroundColor(.red)
-                        } else {
-                            Text("Regular expression to detect when the server is ready")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    
-                    VStack(alignment: .leading, spacing: 4) {
-                        TextField("Port Detection Pattern", text: $portDetectionPattern, prompt: Text("e.g., port (\\d+), localhost:(\\d+)"))
-                            .textFieldStyle(.roundedBorder)
-                            .onChange(of: portDetectionPattern) { _ in
-                                validatePortPattern()
-                            }
-                            .accessibilityLabel("Port Detection Pattern")
-                            .accessibilityHint("Enter a regular expression to extract port number from server output")
-                            .accessibilityValue(portDetectionPattern.isEmpty ? "Empty" : portDetectionPattern)
-                        
-                        if let error = portPatternError {
-                            Text(error)
-                                .font(.caption)
-                                .foregroundColor(.red)
-                        } else {
-                            Text("Regular expression to extract port number (first capture group)")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
+                    .pickerStyle(.segmented)
+                    .onChange(of: urlDetectionMode) { _ in probe.reset() }
+
+                    switch urlDetectionMode {
+                    case .automatic:
+                        automaticDetectionFields
+                    case .fixed:
+                        fixedURLField
                     }
                 } header: {
-                    Text("Server Configuration")
+                    Text("Server")
                 } footer: {
-                    Text("Configure how the app detects when your server is ready")
+                    if urlDetectionMode == .automatic {
+                        Text("The app finds the port your server opens — no need to know it in advance. Works even when the server picks a free port automatically. Use \u{201C}Test launch\u{201D} to confirm it now.")
+                    } else {
+                        Text("Loaded exactly as entered, once the server is ready.")
+                    }
                 }
-                
-                // Appearance Section
+
+                // Advanced options (collapsed by default)
                 Section {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            TextField("Custom Icon Path", text: $customIconPath, prompt: Text("Optional"))
-                                .textFieldStyle(.roundedBorder)
-                                .disabled(true)
-                                .accessibilityLabel("Custom Icon Path")
-                                .accessibilityHint("Shows the selected icon file path")
-                                .accessibilityValue(customIconPath.isEmpty ? "No icon selected" : customIconPath)
-                            
-                            if let error = iconError {
-                                Text(error)
+                    DisclosureGroup(isExpanded: $showAdvanced) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                TextField("Ready signal pattern", text: $readySignalPattern, prompt: Text("optional · e.g. Ready on"))
+                                    .textFieldStyle(.roundedBorder)
+                                    .onChange(of: readySignalPattern) { _ in
+                                        validateReadySignal()
+                                    }
+                                    .help("Regular expression to detect when the server is ready (matched against its output).")
+                                    .accessibilityLabel("Ready Signal Pattern")
+
+                                if let error = readySignalError {
+                                    Text(error)
+                                        .font(.caption)
+                                        .foregroundStyle(.red)
+                                }
+                            }
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                TextField("Port detection pattern", text: $portDetectionPattern, prompt: Text("optional · e.g. localhost:(\\d+)"))
+                                    .textFieldStyle(.roundedBorder)
+                                    .onChange(of: portDetectionPattern) { _ in
+                                        validatePortPattern()
+                                    }
+                                    .help("Regular expression to extract the port number from the server output. The first capture group should contain the port.")
+                                    .accessibilityLabel("Port Detection Pattern")
+
+                                if let error = portPatternError {
+                                    Text(error)
+                                        .font(.caption)
+                                        .foregroundStyle(.red)
+                                }
+                            }
+
+                            workingDirectoryField
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Toggle("Run without a terminal", isOn: $runWithoutTerminal)
+                                    .help("By default the server runs as if launched in Terminal, so scripts that only start when they detect an interactive terminal work. Turn this on only if a server misbehaves that way.")
+                                    .accessibilityLabel("Run without a terminal")
+
+                                Text("Leave off for most servers. Turn on only if a server behaves worse when run as if in a terminal.")
                                     .font(.caption)
-                                    .foregroundColor(.red)
-                            } else if !customIconPath.isEmpty {
-                                Text(customIconPath)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                            } else {
-                                Text("Choose a custom icon for the generated app bundle")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+                                    .foregroundStyle(.secondary)
                             }
                         }
-                        
-                        Button("Choose...") {
-                            showingIconPicker = true
-                        }
-                        .buttonStyle(.bordered)
-                        .accessibilityLabel("Choose Icon")
-                        .accessibilityHint("Opens file picker to select a custom icon image")
-                        
-                        if !customIconPath.isEmpty {
-                            Button {
-                                customIconPath = ""
-                                iconError = nil
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundColor(.secondary)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Clear Icon")
-                            .accessibilityHint("Removes the selected custom icon")
-                        }
+                        .padding(.top, 6)
+                    } label: {
+                        Text("Advanced options")
                     }
-                } header: {
-                    Text("Appearance")
-                } footer: {
-                    Text("A default icon will be used if no custom icon is provided")
                 }
             }
             .formStyle(.grouped)
@@ -309,6 +285,7 @@ struct ConfigurationEditorView: View {
             }
         }
         .frame(minWidth: 600, minHeight: 500)
+        .onDisappear { probe.cancel() }
     }
     
     // MARK: - Launch Script Subviews
@@ -316,162 +293,307 @@ struct ConfigurationEditorView: View {
     @ViewBuilder
     private var scriptFileFields: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    TextField("Script File", text: .constant(command.isEmpty ? "" : command))
-                        .textFieldStyle(.roundedBorder)
-                        .disabled(true)
-                    
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
                     if command.isEmpty {
-                        Text("Choose a shell script to run")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        Text("No script selected")
+                            .foregroundStyle(.secondary)
                     } else {
-                        Text(FileManager.default.displayName(atPath: command))
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        Label(FileManager.default.displayName(atPath: command), systemImage: "doc.text")
                             .lineLimit(1)
                             .truncationMode(.middle)
+                            .help(command)
                     }
-                    if let error = commandError {
-                        Text(error)
-                            .font(.caption)
-                            .foregroundColor(.red)
+
+                    Spacer()
+
+                    Button(command.isEmpty ? "Choose…" : "Change…") {
+                        chooseScriptFile()
+                    }
+                    .buttonStyle(.bordered)
+
+                    if !command.isEmpty {
+                        Button {
+                            command = ""
+                            workingDirectory = ""
+                            commandError = nil
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Clear script file")
                     }
                 }
-                
-                Button("Choose...") {
-                    chooseScriptFile()
-                }
-                .buttonStyle(.bordered)
-                
-                if !command.isEmpty {
-                    Button {
-                        command = ""
-                        workingDirectory = ""
-                        commandError = nil
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.secondary)
-                    }
-                    .buttonStyle(.plain)
+
+                if let error = commandError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
                 }
             }
-            
-            VStack(alignment: .leading, spacing: 4) {
-                TextField("Arguments", text: $arguments, prompt: Text("Extra arguments (optional)"))
-                    .textFieldStyle(.roundedBorder)
-                Text("Additional arguments appended after the script path")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
+
+            TextField("Arguments", text: $arguments, prompt: Text("optional · extra arguments"))
+                .textFieldStyle(.roundedBorder)
+                .help("Additional arguments appended after the script path.")
         }
-        workingDirectoryField
     }
-    
+
     @ViewBuilder
     private var inlineScriptFields: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Script Content")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                
-                TextEditor(text: $inlineScriptContent)
-                    .font(.system(.body, design: .monospaced))
-                    .frame(minHeight: 120)
-                    .border(Color.secondary.opacity(0.3))
-                    .cornerRadius(4)
-                
-                Text("Enter the shell script content. It will be saved and executed by the wrapper.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
+        VStack(alignment: .leading, spacing: 4) {
+            TextEditor(text: $inlineScriptContent)
+                .font(.system(.body, design: .monospaced))
+                .frame(minHeight: 120)
+                .border(Color.secondary.opacity(0.3))
+                .cornerRadius(4)
+                .help("Enter the shell script content. It will be saved and executed by the wrapper.")
+                .accessibilityLabel("Script content")
         }
-        workingDirectoryField
     }
-    
+
     @ViewBuilder
     private var manualCommandFields: some View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                TextField("Command", text: $command, prompt: Text("e.g., npm, python3, /usr/local/bin/node"))
+                TextField("Command", text: $command, prompt: Text("e.g. npm, python3, /usr/local/bin/node"))
                     .textFieldStyle(.roundedBorder)
                     .onChange(of: command) { _ in
                         validateCommand()
                     }
-                
+                    .help("The executable to run.")
+
                 if let error = commandError {
                     Text(error)
                         .font(.caption)
-                        .foregroundColor(.red)
-                } else {
-                    Text("The executable to run")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.red)
                 }
             }
-            
-            VStack(alignment: .leading, spacing: 4) {
-                TextField("Arguments", text: $arguments, prompt: Text("e.g., run dev, -m http.server 8000"))
-                    .textFieldStyle(.roundedBorder)
-                Text("Space-separated arguments to pass to the command")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
+
+            TextField("Arguments", text: $arguments, prompt: Text("e.g. run dev, -m http.server 8000"))
+                .textFieldStyle(.roundedBorder)
+                .help("Space-separated arguments to pass to the command.")
         }
-        workingDirectoryField
     }
-    
+
     private var workingDirectoryField: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                TextField("Working Directory", text: $workingDirectory, prompt: Text("Optional (e.g., ~/Library/MyServer)"))
-                    .textFieldStyle(.roundedBorder)
-                
-                if !workingDirectory.isEmpty {
-                    Text(workingDirectory)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                } else if scriptSource == .file {
-                    Text("Auto-detected from the script file location")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                } else {
-                    Text("The directory where the server process will run")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            }
-            
-            Button("Choose...") {
+        HStack(spacing: 8) {
+            TextField("Working directory", text: $workingDirectory, prompt: Text("optional · e.g. ~/Library/MyServer"))
+                .textFieldStyle(.roundedBorder)
+                .help(scriptSource == .file
+                      ? "Defaults to the script file's location if left empty."
+                      : "The directory where the server process will run.")
+
+            Button("Choose…") {
                 chooseWorkingDirectory()
             }
             .buttonStyle(.bordered)
-            
+
             if !workingDirectory.isEmpty {
                 Button {
                     workingDirectory = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Clear working directory")
             }
         }
     }
-    
+
     private var launchScriptFooter: Text {
         switch scriptSource {
         case .file:
-            return Text("Pick a shell script. The working directory is automatically set to the script's location.")
+            return Text("Pick a shell script. Its folder is used as the working directory unless you set one under Advanced.")
         case .inline:
-            return Text("Enter your script content and specify a working directory below.")
+            return Text("Type a script to be saved and run by the wrapper.")
         case .command:
-            return Text("Manually specify the executable and its arguments.")
+            return Text("Specify the executable and its arguments.")
         }
+    }
+
+    // MARK: - Server Address Subviews
+
+    /// The fixed-URL text field (used in `.fixed` mode, and as the fallback URL editor).
+    private var fixedURLField: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            TextField("Localhost URL", text: $localhostURL, prompt: Text("http://localhost:3000"))
+                .textFieldStyle(.roundedBorder)
+                .onChange(of: localhostURL) { _ in
+                    validateURL()
+                }
+                .help("The URL where your server will be accessible once it's running.")
+                .accessibilityLabel("Localhost URL")
+                .accessibilityHint("Enter the URL where your server will be accessible")
+                .accessibilityValue(localhostURL.isEmpty ? "Empty" : localhostURL)
+
+            if let error = urlError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+        }
+    }
+
+    /// Automatic-mode content: a status line plus a "Test launch" button that runs the server once
+    /// and reports the URL it actually serves.
+    @ViewBuilder
+    private var automaticDetectionFields: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                probeStatusView
+                Spacer()
+                probeActionButton
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var probeStatusView: some View {
+        switch probe.phase {
+        case .idle:
+            Text("Detected when the server launches.")
+                .foregroundStyle(.secondary)
+        case .launching:
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Launching server and watching for its port…")
+                    .foregroundStyle(.secondary)
+            }
+        case .detected(let url):
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                Text(url.absoluteString)
+                    .textSelection(.enabled)
+                Button("Pin as fixed URL") {
+                    localhostURL = url.absoluteString
+                    validateURL()
+                    urlDetectionMode = .fixed
+                    probe.reset()
+                }
+                .buttonStyle(.link)
+                .font(.callout)
+            }
+        case .failed(let message):
+            Label(message, systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .font(.caption)
+                .lineLimit(3)
+        }
+    }
+
+    @ViewBuilder
+    private var probeActionButton: some View {
+        switch probe.phase {
+        case .launching:
+            Button("Stop") { probe.cancel() }
+                .buttonStyle(.bordered)
+        default:
+            Button(probe.phase == .idle ? "Test launch" : "Test again") {
+                runTestLaunch()
+            }
+            .buttonStyle(.bordered)
+            .disabled(!canTestLaunch)
+            .help(canTestLaunch
+                  ? "Launch the server once to detect the URL it serves."
+                  : "Add a command or script first.")
+        }
+    }
+
+    /// Whether there's enough in the form to actually launch something.
+    private var canTestLaunch: Bool {
+        switch scriptSource {
+        case .command, .file:
+            return !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .inline:
+            return !inlineScriptContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    /// Build a throwaway configuration from the current form and run the probe against it.
+    private func runTestLaunch() {
+        probe.start(config: draftConfiguration())
+    }
+
+    /// A configuration built from the current editor fields, used for test launches (no persistence).
+    private func draftConfiguration() -> ServerConfiguration {
+        let parsedArguments = arguments
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(separator: " ")
+            .map(String.init)
+            .filter { !$0.isEmpty }
+        let trimmedWorkingDir = workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedInline = inlineScriptContent.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return ServerConfiguration(
+            name: name.isEmpty ? "Test" : name,
+            command: command.trimmingCharacters(in: .whitespacesAndNewlines),
+            arguments: parsedArguments,
+            localhostURL: localhostURL.isEmpty ? nil : localhostURL.trimmingCharacters(in: .whitespacesAndNewlines),
+            urlDetectionMode: urlDetectionMode,
+            runWithoutTerminal: runWithoutTerminal,
+            workingDirectory: trimmedWorkingDir.isEmpty ? nil : trimmedWorkingDir,
+            scriptSource: scriptSource,
+            inlineScriptContent: trimmedInline.isEmpty ? nil : trimmedInline
+        )
+    }
+
+    // MARK: - Icon Well
+
+    /// The custom icon loaded from disk, if a valid path is set.
+    private var loadedIconImage: NSImage? {
+        let trimmed = customIconPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let expanded = NSString(string: trimmed).expandingTildeInPath
+        guard FileManager.default.fileExists(atPath: expanded) else { return nil }
+        return NSImage(contentsOfFile: expanded)
+    }
+
+    /// A clickable icon well that previews and chooses the custom app icon.
+    private var iconWell: some View {
+        Button {
+            showingIconPicker = true
+        } label: {
+            Group {
+                if let image = loadedIconImage {
+                    Image(nsImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } else {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.accentColor.opacity(0.15))
+                        .overlay {
+                            Image(systemName: "photo.badge.plus")
+                                .font(.system(size: 20))
+                                .foregroundStyle(.tint)
+                        }
+                }
+            }
+            .frame(width: 56, height: 56)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .overlay(alignment: .bottomTrailing) {
+            if !customIconPath.isEmpty {
+                Button {
+                    customIconPath = ""
+                    iconError = nil
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                        .background(Circle().fill(.background))
+                }
+                .buttonStyle(.plain)
+                .offset(x: 4, y: 4)
+                .accessibilityLabel("Clear icon")
+            }
+        }
+        .help(customIconPath.isEmpty
+              ? "Choose a custom icon for the generated app (optional)."
+              : "Click to change the app icon.")
+        .accessibilityLabel("App icon")
     }
     
     // MARK: - Computed Properties
@@ -718,6 +840,8 @@ struct ConfigurationEditorView: View {
                 command: command.trimmingCharacters(in: .whitespacesAndNewlines),
                 arguments: parsedArguments,
                 localhostURL: localhostURL.isEmpty ? nil : localhostURL.trimmingCharacters(in: .whitespacesAndNewlines),
+                urlDetectionMode: urlDetectionMode,
+                runWithoutTerminal: runWithoutTerminal,
                 readySignalPattern: readySignalPattern.isEmpty ? nil : readySignalPattern.trimmingCharacters(in: .whitespacesAndNewlines),
                 portDetectionPattern: portDetectionPattern.isEmpty ? nil : portDetectionPattern.trimmingCharacters(in: .whitespacesAndNewlines),
                 customIconPath: nil, // set below after potential storage
@@ -733,6 +857,8 @@ struct ConfigurationEditorView: View {
                 command: command.trimmingCharacters(in: .whitespacesAndNewlines),
                 arguments: parsedArguments,
                 localhostURL: localhostURL.isEmpty ? nil : localhostURL.trimmingCharacters(in: .whitespacesAndNewlines),
+                urlDetectionMode: urlDetectionMode,
+                runWithoutTerminal: runWithoutTerminal,
                 readySignalPattern: readySignalPattern.isEmpty ? nil : readySignalPattern.trimmingCharacters(in: .whitespacesAndNewlines),
                 portDetectionPattern: portDetectionPattern.isEmpty ? nil : portDetectionPattern.trimmingCharacters(in: .whitespacesAndNewlines),
                 customIconPath: nil, // set below after potential storage

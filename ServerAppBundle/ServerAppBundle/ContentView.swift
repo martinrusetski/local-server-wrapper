@@ -222,6 +222,17 @@ struct ContentView: View {
         } message: {
             Text("The server has been running for 30 seconds but the ready signal has not been detected. You can keep waiting or manually open the browser.")
         }
+        .alert("Server Didn't Start", isPresented: $appState.showStartupFailureAlert) {
+            Button("OK", role: .cancel) {
+                appState.showStartupFailureAlert = false
+            }
+            Button("Retry") {
+                appState.showStartupFailureAlert = false
+                appState.restartServer()
+            }
+        } message: {
+            Text(appState.startupFailureMessage ?? "The server process exited before it became ready.")
+        }
         .alert("Save Credentials?", isPresented: $appState.showCredentialSavePrompt) {
             Button("Save") {
                 if let cred = appState.pendingCredential {
