@@ -47,6 +47,16 @@ class AppBundleGenerator: AppBundleGeneratorProtocol {
         
         // Report progress: Starting (0%)
         progressHandler?(0.0, "Starting bundle generation...")
+
+        // Ensure the shared runtime is installed to ~/Library/Frameworks; the thin launcher we copy
+        // below loads it from there (Step 2). Fail loudly if it can't be made available, otherwise
+        // generated bundles would launch-crash with a missing framework.
+        guard RuntimeInstaller.installIfNeeded() else {
+            throw GenerationError.resourceCopyFailed("""
+                Shared ServerRuntime.framework could not be installed to ~/Library/Frameworks.
+                Build the ServerAppBundle scheme (Release) first so the framework exists.
+                """)
+        }
         
         // Create bundle URL with .app extension
         let bundleName = sanitizeBundleName(configuration.name)
@@ -120,88 +130,37 @@ class AppBundleGenerator: AppBundleGeneratorProtocol {
     
     // MARK: - Private Methods
 
-    /// Copy the executable template to the bundle's MacOS directory
+    /// Copy the thin launcher template (ServerAppBundle.app) to the destination bundle URL.
+    ///
+    /// The template is now a *thin launcher*: it loads the shared ServerRuntime.framework from
+    /// ~/Library/Frameworks via the absolute rpath baked into its binary, so each generated copy is
+    /// small and no longer embeds its own runtime. No `install_name_tool` patch is needed — the
+    /// template already carries the right rpath.
+    ///
     /// - Parameter bundleURL: The URL of the bundle being created
-    /// - Throws: GenerationError.resourceCopyFailed if copying fails
+    /// - Throws: GenerationError.resourceCopyFailed if the template is missing or copying fails
     private func copyExecutableTemplate(to bundleURL: URL) throws {
-        // Instead of copying just the executable, we need to copy the entire ServerAppBundle.app
-        // and then customize it. This preserves all the necessary bundle structure.
-        
-        // Find the source ServerAppBundle.app
-        var sourceAppURL: URL?
-        
-        // 1. Try embedded resource
-        if let embeddedAppURL = Bundle.main.url(forResource: "ServerAppBundle", withExtension: "app") {
-            if FileManager.default.fileExists(atPath: embeddedAppURL.path) {
-                sourceAppURL = embeddedAppURL
-                os_log(.info, log: logger, "Using embedded ServerAppBundle.app from resources")
-            }
-        }
-        
-        // 2. Try workspace Release build
-        if sourceAppURL == nil, let executablePath = Bundle.main.executablePath {
-            let executableURL = URL(fileURLWithPath: executablePath)
-            var currentURL = executableURL
-            for _ in 0..<10 {
-                currentURL = currentURL.deletingLastPathComponent()
-                if currentURL.lastPathComponent == "LocalServerWrapper" {
-                    let workspaceRoot = currentURL.deletingLastPathComponent()
-                    let releasePath = workspaceRoot.appendingPathComponent("ServerAppBundle/build/Build/Products/Release/ServerAppBundle.app")
-                    if FileManager.default.fileExists(atPath: releasePath.path) {
-                        sourceAppURL = releasePath
-                        os_log(.info, log: logger, "Found Release build in workspace")
-                        break
-                    }
-                }
-            }
-        }
-        
-        // 3. Try DerivedData Release builds
-        if sourceAppURL == nil {
-            let derivedDataPath = NSHomeDirectory() + "/Library/Developer/Xcode/DerivedData"
-            let derivedDataURL = URL(fileURLWithPath: derivedDataPath)
-            
-            if let derivedDataContents = try? FileManager.default.contentsOfDirectory(
-                at: derivedDataURL,
-                includingPropertiesForKeys: [.isDirectoryKey],
-                options: [.skipsHiddenFiles]
-            ) {
-                for folder in derivedDataContents {
-                    if folder.lastPathComponent.hasPrefix("ServerAppBundle-") {
-                        let releasePath = folder.appendingPathComponent("Build/Products/Release/ServerAppBundle.app")
-                        if FileManager.default.fileExists(atPath: releasePath.path) {
-                            sourceAppURL = releasePath
-                            os_log(.info, log: logger, "Found Release build in DerivedData")
-                            break
-                        }
-                    }
-                }
-            }
-        }
-        
-        guard let sourceURL = sourceAppURL else {
-            os_log(.error, log: logger, "ServerAppBundle.app not found")
+        guard let sourceURL = ProductLocator.launcherTemplate() else {
+            os_log(.error, log: logger, "Launcher template (ServerAppBundle.app) not found")
             throw GenerationError.resourceCopyFailed("""
-                ServerAppBundle.app not found.
+                Launcher template (ServerAppBundle.app) not found.
 
-                For development: Build ServerAppBundle in Release mode first.
-                For distribution: Add ServerAppBundle.app to LocalServerWrapper's Copy Bundle Resources.
+                For development: build the ServerAppBundle scheme (Release) first.
+                For distribution: ship ServerAppBundle.app (and ServerRuntime.framework) with the manager.
                 """)
         }
-        
-        os_log(.debug, log: logger, "Copying entire app bundle from: %{public}@", sourceURL.path)
-        
-        // Remove the bundle we created (we'll replace it with a copy of the source)
+
+        os_log(.debug, log: logger, "Copying launcher template from: %{public}@", sourceURL.path)
+
+        // Remove the bundle we created (we'll replace it with a copy of the template)
         try? FileManager.default.removeItem(at: bundleURL)
-        
+
         do {
-            // Copy the entire ServerAppBundle.app
             try FileManager.default.copyItem(at: sourceURL, to: bundleURL)
-            
-            os_log(.debug, log: logger, "App bundle copied successfully")
+            os_log(.debug, log: logger, "Launcher template copied successfully")
         } catch {
-            os_log(.error, log: logger, "Failed to copy app bundle: %{public}@", error.localizedDescription)
-            throw GenerationError.resourceCopyFailed("Failed to copy app bundle: \(error.localizedDescription)")
+            os_log(.error, log: logger, "Failed to copy launcher template: %{public}@", error.localizedDescription)
+            throw GenerationError.resourceCopyFailed("Failed to copy launcher template: \(error.localizedDescription)")
         }
     }
     

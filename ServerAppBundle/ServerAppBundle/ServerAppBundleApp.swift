@@ -8,12 +8,14 @@
 import SwiftUI
 import AppKit
 
-@main
-struct ServerAppBundleApp: App {
+// NOTE: No longer `@main`. This type lives in the ServerRuntime framework; the thin launcher stub
+// (ServerLauncher/main.swift) is the executable entry point and calls `ServerAppBundleApp.main()`.
+// It must be `public` so the stub in the separate launcher module can reference it.
+public struct ServerAppBundleApp: App {
     @StateObject private var appState: AppState
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    
-    init() {
+
+    public init() {
         // Load the embedded configuration
         let configuration = ConfigurationLoader.loadEmbeddedConfigurationWithFallback()
         
@@ -22,7 +24,7 @@ struct ServerAppBundleApp: App {
         _appState = StateObject(wrappedValue: state)
     }
     
-    var body: some Scene {
+    public var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(appState)

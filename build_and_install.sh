@@ -45,12 +45,13 @@ build LocalServerWrapper "$SCRIPT_DIR/LocalServerWrapper" -scheme LocalServerWra
 
 WRAPPER_APP="$SCRIPT_DIR/LocalServerWrapper/$PRODUCTS/LocalServerWrapper.app"
 SERVER_APP="$SCRIPT_DIR/ServerAppBundle/$PRODUCTS/ServerAppBundle.app"
+SERVER_FW="$SCRIPT_DIR/ServerAppBundle/$PRODUCTS/ServerRuntime.framework"
 
-# Verify both products exist before touching /Applications.
-for app in "$WRAPPER_APP" "$SERVER_APP"; do
-    if [ ! -d "$app" ]; then
-        echo "✗ Expected build product missing: $app"
-        echo "  (the build reported success but the .app isn't where we expect it)"
+# Verify all products exist before touching /Applications.
+for product in "$WRAPPER_APP" "$SERVER_APP" "$SERVER_FW"; do
+    if [ ! -d "$product" ]; then
+        echo "✗ Expected build product missing: $product"
+        echo "  (the build reported success but the product isn't where we expect it)"
         exit 1
     fi
 done
@@ -69,6 +70,17 @@ if ! cp -R "$WRAPPER_APP" "/Applications/LocalServerWrapper.app"; then
 fi
 
 echo "✓ Installed to /Applications/LocalServerWrapper.app"
-echo "  (self-contained — ServerAppBundle.app embedded as resource)"
+
+# Install the shared runtime so generated thin launchers can load it from ~/Library/Frameworks.
+echo ""
+echo "=== Installing shared ServerRuntime.framework to ~/Library/Frameworks ==="
+mkdir -p "$HOME/Library/Frameworks"
+rm -rf "$HOME/Library/Frameworks/ServerRuntime.framework"
+if cp -R "$SERVER_FW" "$HOME/Library/Frameworks/"; then
+    echo "✓ Installed shared runtime (generated bundles are thin launchers that load it)"
+else
+    echo "✗ Failed to install ServerRuntime.framework to ~/Library/Frameworks"
+    exit 1
+fi
 echo ""
 echo "Launch: open /Applications/LocalServerWrapper.app"

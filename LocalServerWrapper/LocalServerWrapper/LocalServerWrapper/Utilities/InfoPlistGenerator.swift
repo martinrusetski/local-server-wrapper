@@ -52,6 +52,12 @@ struct InfoPlistGenerator {
         
         // Bundle identifier - unique per configuration
         infoPlist["CFBundleIdentifier"] = "com.localserverwrapper.generated.\(configuration.id.uuidString.lowercased())"
+
+        // Configuration id - lets the runtime read this server's *live* config from the manager's
+        // shared store (configurations.json) at launch, so edits in the main app take effect on the
+        // next launch without regenerating the bundle. The embedded configuration.json remains only
+        // as a fallback snapshot. (Must match ConfigurationLoader.configurationIDInfoKey.)
+        infoPlist["LSWConfigurationID"] = configuration.id.uuidString
         
         // Bundle name - from configuration name
         infoPlist["CFBundleName"] = configuration.name

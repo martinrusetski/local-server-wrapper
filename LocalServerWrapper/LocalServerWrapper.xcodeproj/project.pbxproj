@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		1F61C87E2FD4D53200E38235 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 1F61C87D2FD4D53200E38235 /* AppIcon.icon */; };
 		1F9812E42FA51118003032DD /* ServerAppBundle.app in Resources */ = {isa = PBXBuildFile; fileRef = 1F9812E32FA51118003032DD /* ServerAppBundle.app */; };
+		1FBF5F252FF282F1004EFBAF /* ServerRuntime.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1FBF5F1A2FF282F1004EFBAF /* ServerRuntime.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -26,7 +27,34 @@
 			remoteGlobalIDString = 1F8D25B72FA49243001DCFE4;
 			remoteInfo = LocalServerWrapper;
 		};
+		1FBF5F262FF282F1004EFBAF /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1F8D25B02FA49243001DCFE4 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 1FBF5F192FF282F1004EFBAF;
+			remoteInfo = ServerRuntime;
+		};
+		1FBF5F282FF282F1004EFBAF /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1F8D25B02FA49243001DCFE4 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 1F8D25B72FA49243001DCFE4;
+			remoteInfo = LocalServerWrapper;
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		1FBF5F312FF282F1004EFBAF /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		1F61C87D2FD4D53200E38235 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = AppIcon.icon; sourceTree = "<group>"; };
@@ -39,16 +67,22 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		1F8D25BA2FA49243001DCFE4 /* LocalServerWrapper */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = LocalServerWrapper;
 			sourceTree = "<group>";
 		};
 		1F8D25C82FA49244001DCFE4 /* LocalServerWrapperTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = LocalServerWrapperTests;
 			sourceTree = "<group>";
 		};
 		1F8D25D22FA49244001DCFE4 /* LocalServerWrapperUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = LocalServerWrapperUITests;
 			sourceTree = "<group>";
 		};
@@ -111,6 +145,7 @@
 				1F8D25B42FA49243001DCFE4 /* Sources */,
 				1F8D25B52FA49243001DCFE4 /* Frameworks */,
 				1F8D25B62FA49243001DCFE4 /* Resources */,
+				1FBF5F312FF282F1004EFBAF /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
@@ -120,8 +155,6 @@
 				1F8D25BA2FA49243001DCFE4 /* LocalServerWrapper */,
 			);
 			name = LocalServerWrapper;
-			packageProductDependencies = (
-			);
 			productName = LocalServerWrapper;
 			productReference = 1F8D25B82FA49243001DCFE4 /* LocalServerWrapper.app */;
 			productType = "com.apple.product-type.application";
@@ -143,8 +176,6 @@
 				1F8D25C82FA49244001DCFE4 /* LocalServerWrapperTests */,
 			);
 			name = LocalServerWrapperTests;
-			packageProductDependencies = (
-			);
 			productName = LocalServerWrapperTests;
 			productReference = 1F8D25C52FA49244001DCFE4 /* LocalServerWrapperTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -166,8 +197,6 @@
 				1F8D25D22FA49244001DCFE4 /* LocalServerWrapperUITests */,
 			);
 			name = LocalServerWrapperUITests;
-			packageProductDependencies = (
-			);
 			productName = LocalServerWrapperUITests;
 			productReference = 1F8D25CF2FA49244001DCFE4 /* LocalServerWrapperUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
@@ -179,7 +208,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 2640;
+				LastSwiftUpdateCheck = 2660;
 				LastUpgradeCheck = 2640;
 				TargetAttributes = {
 					1F8D25B72FA49243001DCFE4 = {
@@ -191,6 +220,13 @@
 					};
 					1F8D25CE2FA49244001DCFE4 = {
 						CreatedOnToolsVersion = 26.4.1;
+						TestTargetID = 1F8D25B72FA49243001DCFE4;
+					};
+					1FBF5F192FF282F1004EFBAF = {
+						CreatedOnToolsVersion = 26.6;
+					};
+					1FBF5F232FF282F1004EFBAF = {
+						CreatedOnToolsVersion = 26.6;
 						TestTargetID = 1F8D25B72FA49243001DCFE4;
 					};
 				};
@@ -567,6 +603,124 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TEST_TARGET_NAME = LocalServerWrapper;
+			};
+			name = Release;
+		};
+		1FBF5F322FF282F1004EFBAF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUILD_LIBRARY_FOR_DISTRIBUTION = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = AX3H9YA887;
+				DYLIB_COMPATIBILITY_VERSION = 1;
+				DYLIB_CURRENT_VERSION = 1;
+				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				ENABLE_MODULE_VERIFIER = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.5;
+				MARKETING_VERSION = 1.0;
+				MODULE_VERIFIER_SUPPORTED_LANGUAGES = "objective-c objective-c++";
+				MODULE_VERIFIER_SUPPORTED_LANGUAGE_STANDARDS = "gnu17 gnu++20";
+				PRODUCT_BUNDLE_IDENTIFIER = "-.ServerRuntime";
+				PRODUCT_NAME = "$(TARGET_NAME:c99extidentifier)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_INSTALL_MODULE = YES;
+				SWIFT_INSTALL_OBJC_HEADER = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				VERSIONING_SYSTEM = "apple-generic";
+				VERSION_INFO_PREFIX = "";
+			};
+			name = Debug;
+		};
+		1FBF5F332FF282F1004EFBAF /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUILD_LIBRARY_FOR_DISTRIBUTION = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = AX3H9YA887;
+				DYLIB_COMPATIBILITY_VERSION = 1;
+				DYLIB_CURRENT_VERSION = 1;
+				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				ENABLE_MODULE_VERIFIER = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.5;
+				MARKETING_VERSION = 1.0;
+				MODULE_VERIFIER_SUPPORTED_LANGUAGES = "objective-c objective-c++";
+				MODULE_VERIFIER_SUPPORTED_LANGUAGE_STANDARDS = "gnu17 gnu++20";
+				PRODUCT_BUNDLE_IDENTIFIER = "-.ServerRuntime";
+				PRODUCT_NAME = "$(TARGET_NAME:c99extidentifier)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_INSTALL_MODULE = YES;
+				SWIFT_INSTALL_OBJC_HEADER = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				VERSIONING_SYSTEM = "apple-generic";
+				VERSION_INFO_PREFIX = "";
+			};
+			name = Release;
+		};
+		1FBF5F342FF282F1004EFBAF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = AX3H9YA887;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "-.ServerRuntimeTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/LocalServerWrapper.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/LocalServerWrapper";
+			};
+			name = Debug;
+		};
+		1FBF5F352FF282F1004EFBAF /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = AX3H9YA887;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "-.ServerRuntimeTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/LocalServerWrapper.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/LocalServerWrapper";
 			};
 			name = Release;
 		};

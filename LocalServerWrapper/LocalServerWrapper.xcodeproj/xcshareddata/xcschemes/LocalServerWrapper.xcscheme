@@ -52,6 +52,17 @@
                ReferencedContainer = "container:LocalServerWrapper.xcodeproj">
             </BuildableReference>
          </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "1FBF5F232FF282F1004EFBAF"
+               BuildableName = "ServerRuntimeTests.xctest"
+               BlueprintName = "ServerRuntimeTests"
+               ReferencedContainer = "container:LocalServerWrapper.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction

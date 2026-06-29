@@ -35,7 +35,66 @@ enum ConfigurationLoadError: Error, LocalizedError {
 /// to access resources relative to the bundle location, with no hardcoded paths.
 /// The bundle can be moved to any filesystem location and will continue to function.
 struct ConfigurationLoader {
-    
+
+    /// Info.plist key holding the UUID of the configuration this bundle represents. Written by the
+    /// manager's `InfoPlistGenerator` at generation time. Its presence is what opts a bundle into
+    /// reading the live shared store, so it is deliberately absent from the runtime's own dev
+    /// Info.plist and from test bundles (which must keep falling back to embedded/default config).
+    static let configurationIDInfoKey = "LSWConfigurationID"
+
+    /// Load this bundle's configuration *live* from the manager's shared store, matched by the UUID
+    /// baked into Info.plist.
+    ///
+    /// The store lives at `~/Library/Application Support/LocalServerWrapper/configurations.json`
+    /// (both apps are unsandboxed, so they resolve the same path). Reading it on every launch means
+    /// edits made in the main app take effect next launch without regenerating the bundle.
+    ///
+    /// - Returns: The matching live `ServerConfiguration`.
+    /// - Throws: `ConfigurationLoadError` if the bundle has no embedded id, the store is missing or
+    ///   unreadable, or no entry matches — callers fall back to the embedded snapshot.
+    static func loadFromSharedStore() throws -> ServerConfiguration {
+        guard let idString = Bundle.main.object(forInfoDictionaryKey: configurationIDInfoKey) as? String,
+              let id = UUID(uuidString: idString) else {
+            os_log(.info, log: logger, "No %{public}@ in Info.plist; skipping live store", configurationIDInfoKey)
+            throw ConfigurationLoadError.configurationFileNotFound
+        }
+
+        let appSupportURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        guard let storeURL = appSupportURL?
+            .appendingPathComponent("LocalServerWrapper")
+            .appendingPathComponent("configurations.json"),
+              FileManager.default.fileExists(atPath: storeURL.path) else {
+            os_log(.info, log: logger, "Shared configuration store not found")
+            throw ConfigurationLoadError.configurationFileNotFound
+        }
+
+        let data: Data
+        do {
+            data = try Data(contentsOf: storeURL)
+        } catch {
+            os_log(.error, log: logger, "Failed to read shared store: %{public}@", error.localizedDescription)
+            throw ConfigurationLoadError.invalidJSON(error)
+        }
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let configurations: [ServerConfiguration]
+        do {
+            configurations = try decoder.decode([ServerConfiguration].self, from: data)
+        } catch {
+            os_log(.error, log: logger, "Failed to decode shared store: %{public}@", error.localizedDescription)
+            throw ConfigurationLoadError.decodingFailed(error)
+        }
+
+        guard let match = configurations.first(where: { $0.id == id }) else {
+            os_log(.info, log: logger, "No entry for id %{public}@ in shared store", idString)
+            throw ConfigurationLoadError.configurationFileNotFound
+        }
+
+        os_log(.info, log: logger, "Loaded live configuration from shared store: %{public}@", match.name)
+        return match
+    }
+
     /// Load the embedded configuration from the app bundle's Resources directory
     ///
     /// This method uses `Bundle.main` to locate resources, ensuring the bundle
@@ -85,6 +144,13 @@ struct ConfigurationLoader {
     /// This method never throws and returns a default configuration if loading fails
     /// - Returns: The loaded ServerConfiguration or a default configuration
     static func loadEmbeddedConfigurationWithFallback() -> ServerConfiguration {
+        // Prefer the live config from the manager's shared store so edits in the main app are picked
+        // up on next launch. Fall back to the snapshot embedded at generation time, then to a
+        // built-in default. (The "Embedded" name is kept for API/test compatibility.)
+        if let live = try? loadFromSharedStore() {
+            return live
+        }
+
         do {
             return try loadEmbeddedConfiguration()
         } catch {

@@ -7,6 +7,7 @@
 
 import Foundation
 import WebKit
+import Combine
 
 /// View model for managing web view state and navigation
 @MainActor

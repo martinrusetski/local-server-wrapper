@@ -7,6 +7,7 @@
 
 import SwiftUI
 import WebKit
+import Combine
 
 /// NSViewRepresentable wrapper for WKWebView
 struct WebView: NSViewRepresentable {
