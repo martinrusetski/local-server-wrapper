@@ -52,6 +52,10 @@ enum RuntimeInstaller {
             try fm.createDirectory(at: installDirectory, withIntermediateDirectories: true)
             if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
             try fm.copyItem(at: source, to: dest)
+            // copyItem preserves extended attributes, so a quarantine flag on a downloaded manager's
+            // embedded framework would ride along to here. Clear it so generated bundles don't load a
+            // quarantined framework on the user's machine.
+            QuarantineRemover.removeRecursively(at: dest)
             os_log(.info, log: logger, "Installed shared runtime to %{public}@", dest.path)
             return true
         } catch {

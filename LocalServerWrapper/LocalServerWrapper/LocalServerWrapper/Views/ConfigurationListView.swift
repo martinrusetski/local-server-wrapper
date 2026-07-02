@@ -137,7 +137,7 @@ struct ConfigurationListView: View {
                         }
                         
                         Button("Use as standalone app...") {
-                            viewModel.generateAppBundle(for: config)
+                            viewModel.exportStandaloneApp(for: config)
                         }
                         
                         Divider()
@@ -175,7 +175,7 @@ struct ConfigurationListView: View {
                         activeSheet = .edit(config)
                     },
                     onGenerate: {
-                        viewModel.generateAppBundle(for: config)
+                        viewModel.exportStandaloneApp(for: config)
                     },
                     onRun: {
                         viewModel.run(configuration: config)

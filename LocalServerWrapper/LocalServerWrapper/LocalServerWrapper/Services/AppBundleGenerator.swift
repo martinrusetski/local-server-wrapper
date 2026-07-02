@@ -121,6 +121,13 @@ class AppBundleGenerator: AppBundleGeneratorProtocol {
             os_log(.error, log: logger, "Ad-hoc signing failed: %{public}@, bundle still functional without Keychain", error.localizedDescription)
         }
         
+        // Clear quarantine from the finished bundle. The launcher template (and any user-provided
+        // custom icon) may carry com.apple.quarantine if the manager itself was downloaded, and
+        // copyItem preserves it; left in place it can trip Gatekeeper/dyld on a user's machine even
+        // though dev-machine bundles are never quarantined. The attribute is excluded from the code
+        // signature, so doing this after signing does not invalidate it.
+        QuarantineRemover.removeRecursively(at: bundleURL)
+
         // Report progress: Complete (100%)
         progressHandler?(1.0, "Bundle generation complete")
         os_log(.info, log: logger, "Successfully generated bundle: %{public}@", bundleURL.path)
