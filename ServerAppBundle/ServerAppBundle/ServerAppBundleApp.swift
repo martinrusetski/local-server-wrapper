@@ -88,36 +88,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let appState = appState else {
-            return .terminateNow
-        }
-
-        // User already confirmed quit: the server tree was killed synchronously, so allow exit.
-        // (Without this the second pass would re-show the dialog while the server was still
-        //  shutting down, and the app could orphan the child holding the port — TASK-2.)
-        if appState.isQuitting {
-            return .terminateNow
-        }
-
-        // If process is not running, allow immediate termination
-        if !appState.isProcessRunning {
-            return .terminateNow
-        }
-
-        // If there is no visible window (e.g. the user closed the window with the red ✕), we can't
-        // show the confirmation dialog — it would have nowhere to appear and the app would get
-        // stuck running headless with the server still holding the port. Just clean up and quit.
-        let hasVisibleWindow = sender.windows.contains { $0.isVisible }
-        if !hasVisibleWindow {
-            appState.prepareForQuit()
-            return .terminateNow
-        }
-
-        // Window present: ask for confirmation; the user triggers the real quit from the alert.
-        Task { @MainActor in
-            appState.showCloseConfirmation = true
-        }
-        return .terminateCancel
+        // Quit immediately, no confirmation. `prepareForQuit` (also called from
+        // applicationWillTerminate) synchronously kills the whole server process tree,
+        // so quitting never leaves an orphaned child holding the port (TASK-2).
+        appState?.prepareForQuit()
+        return .terminateNow
     }
     
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

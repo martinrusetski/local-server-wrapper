@@ -99,25 +99,28 @@ struct ContentView: View {
             }
         }
         .toolbar {
-            ToolbarItemGroup(placement: .navigation) {
+            ToolbarItem(placement: .navigation) {
                 if appState.readinessDetector.isReady {
-                    // Browser navigation controls
-                    Button(action: { appState.webViewModel.goBack() }) {
-                        Label("Back", systemImage: "chevron.left")
+                    // Browser navigation controls — grouped in a tight HStack so they
+                    // sit close together instead of getting the default wide toolbar spacing.
+                    HStack(spacing: 2) {
+                        Button(action: { appState.webViewModel.goBack() }) {
+                            Label("Back", systemImage: "chevron.left")
+                        }
+                        .disabled(!appState.webViewModel.canGoBack)
+                        .help("Go Back")
+
+                        Button(action: { appState.webViewModel.goForward() }) {
+                            Label("Forward", systemImage: "chevron.right")
+                        }
+                        .disabled(!appState.webViewModel.canGoForward)
+                        .help("Go Forward")
+
+                        Button(action: { appState.webViewModel.reload() }) {
+                            Label("Reload", systemImage: "arrow.clockwise")
+                        }
+                        .help("Reload Page")
                     }
-                    .disabled(!appState.webViewModel.canGoBack)
-                    .help("Go Back")
-                    
-                    Button(action: { appState.webViewModel.goForward() }) {
-                        Label("Forward", systemImage: "chevron.right")
-                    }
-                    .disabled(!appState.webViewModel.canGoForward)
-                    .help("Go Forward")
-                    
-                    Button(action: { appState.webViewModel.reload() }) {
-                        Label("Reload", systemImage: "arrow.clockwise")
-                    }
-                    .help("Reload Page")
                 }
             }
             
@@ -144,32 +147,33 @@ struct ContentView: View {
                             .truncationMode(.middle)
                     }
                     .padding(.horizontal, 12)
-                    .padding(.vertical, 4)
-                    .background(Color(NSColor.controlBackgroundColor))
-                    .cornerRadius(6)
+                    .padding(.vertical, 2)
+                    .addressBarGlass()
                     .frame(maxWidth: 500)
                 } else {
                     EmptyView()
                 }
             }
             
-            ToolbarItemGroup(placement: .automatic) {
+            ToolbarItem(placement: .automatic) {
                 if appState.readinessDetector.isReady {
-                    Button(action: {
-                        appState.showCredentialManager = true
-                    }) {
-                        Label("Saved Logins", systemImage: "key")
-                    }
-                    .help("View and delete saved logins")
-
-                    Button(action: {
-                        withAnimation {
-                            appState.toggleSidebar()
+                    HStack(spacing: 2) {
+                        Button(action: {
+                            appState.showCredentialManager = true
+                        }) {
+                            Label("Saved Logins", systemImage: "key")
                         }
-                    }) {
-                        Label("Toggle Terminal", systemImage: "apple.terminal")
+                        .help("View and delete saved logins")
+
+                        Button(action: {
+                            withAnimation {
+                                appState.toggleSidebar()
+                            }
+                        }) {
+                            Label("Toggle Terminal", systemImage: "apple.terminal")
+                        }
+                        .help("Show/hide terminal output")
                     }
-                    .help("Show/hide terminal output")
                 }
             }
         }
@@ -177,29 +181,25 @@ struct ContentView: View {
         .onAppear {
             // Start the server process when the view appears
             appState.startServer()
-            // Apply initial window appearance state
-            DispatchQueue.main.async {
-                guard let window = hostingWindow else { return }
-                window.title = appState.configuration.name
-                applyToolbarState(to: window, hidden: appState.isToolbarHidden)
-            }
+        }
+        .onChange(of: hostingWindow) { window in
+            // Configure the window once it's actually available. Doing this here
+            // (rather than in onAppear) avoids a race: WindowAccessor sets hostingWindow
+            // asynchronously, so onAppear could run while it's still nil and the restored
+            // "hide toolbar" preference would never get applied on launch.
+            guard let window else { return }
+            configureWindow(window)
+        }
+        .onChange(of: appState.readinessDetector.isReady) { _ in
+            // The toolbar items are all gated on readiness, so SwiftUI rebuilds the toolbar
+            // when the server becomes ready — which resets its visibility. Re-apply the
+            // persisted preference so a hidden toolbar stays hidden once the browser appears.
+            guard let window = hostingWindow else { return }
+            applyToolbarState(to: window, hidden: appState.isToolbarHidden)
         }
         .onChange(of: appState.isToolbarHidden) { hidden in
             guard let window = hostingWindow else { return }
             applyToolbarState(to: window, hidden: hidden)
-        }
-        .alert("Server is still running", isPresented: $appState.showCloseConfirmation) {
-            Button("Cancel", role: .cancel) {
-                appState.showCloseConfirmation = false
-            }
-            .keyboardShortcut(.escape)
-            Button("Quit Anyway", role: .destructive) {
-                // Synchronously kill the server tree, then quit — no orphaned port-holder (TASK-2).
-                appState.confirmQuitAndTerminate()
-            }
-            .keyboardShortcut(.return)
-        } message: {
-            Text("The server process is still running. Are you sure you want to quit?")
         }
         .alert("Server Error", isPresented: $appState.showErrorAlert) {
             Button("OK", role: .cancel) {
@@ -254,6 +254,14 @@ struct ContentView: View {
         }
     }
     
+    private func configureWindow(_ window: NSWindow) {
+        window.title = appState.configuration.name
+        // Compact, Safari-web-app-style toolbar: noticeably shorter than the
+        // default unified height, with the title merged into the toolbar row.
+        window.toolbarStyle = .unifiedCompact
+        applyToolbarState(to: window, hidden: appState.isToolbarHidden)
+    }
+
     private func applyToolbarState(to window: NSWindow, hidden: Bool) {
         window.toolbar?.isVisible = !hidden
         if hidden {
@@ -331,6 +339,28 @@ struct CredentialManagerView: View {
             }
         }
         .frame(width: 380, height: 320)
+    }
+}
+
+private extension View {
+    /// Background for the address-bar pill in the window toolbar.
+    ///
+    /// On macOS 26+ (Liquid Glass) the toolbar already draws a translucent glass
+    /// capsule around the principal item, so we add no background of our own —
+    /// otherwise an opaque fill shows up as a solid bar *inside* the system pill.
+    /// On older systems the toolbar has no such backing, so we supply a
+    /// translucent material capsule to get a comparable native look.
+    @ViewBuilder
+    func addressBarGlass() -> some View {
+        if #available(macOS 26.0, *) {
+            self
+        } else {
+            self
+                .background(.ultraThinMaterial, in: Capsule())
+                .overlay(
+                    Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+                )
+        }
     }
 }
 

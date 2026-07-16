@@ -31,10 +31,6 @@ class AppState: ObservableObject {
     /// Whether the toolbar is hidden (showing minimal window chrome)
     /// Persisted to UserDefaults so preference survives app restarts
     @Published var isToolbarHidden: Bool
-    
-    /// Whether to show the close confirmation dialog
-    @Published var showCloseConfirmation: Bool = false
-    
     /// Error message to display to the user
     @Published var errorMessage: String?
     
@@ -527,16 +523,8 @@ class AppState: ObservableObject {
     func prepareForQuit() {
         isQuitting = true
         expectingTermination = true
-        showCloseConfirmation = false
         cancelPortPolling()
         processManager.terminateSynchronously()
-    }
-
-    /// Confirmed-quit path (the "Quit Anyway" button): kill synchronously, then terminate the app.
-    func confirmQuitAndTerminate() {
-        os_log(.info, log: logger, "User confirmed quit; killing server tree synchronously")
-        prepareForQuit()
-        NSApplication.shared.terminate(nil)
     }
 
     /// Check if the process is running (for close confirmation)
