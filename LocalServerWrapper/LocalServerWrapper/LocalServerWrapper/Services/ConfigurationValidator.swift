@@ -49,14 +49,23 @@ class ConfigurationValidator: ConfigurationValidatorProtocol {
             throw ValidationError.missingRequiredField("name")
         }
         
-        // Validate required field: command
-        if config.command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            os_log(.error, log: logger, "Validation failed: missing command")
-            throw ValidationError.missingRequiredField("command")
+        // Validate the launch source. Inline configs (the shape the editor now saves) carry their
+        // command as free-form shell text in `inlineScriptContent`, which can't be statically
+        // validated as an executable path — only require it to be non-empty. Legacy `.command`/
+        // `.file` configs still validate their `command` field as before.
+        switch config.scriptSource {
+        case .inline:
+            if (config.inlineScriptContent ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                os_log(.error, log: logger, "Validation failed: missing inline script content")
+                throw ValidationError.missingRequiredField("command")
+            }
+        case .command, .file:
+            if config.command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                os_log(.error, log: logger, "Validation failed: missing command")
+                throw ValidationError.missingRequiredField("command")
+            }
+            try validateCommand(config.command)
         }
-        
-        // Validate command is valid
-        try validateCommand(config.command)
         
         // Validate optional regex patterns if provided
         if let readySignal = config.readySignalPattern, !readySignal.isEmpty {

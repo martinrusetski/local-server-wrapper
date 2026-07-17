@@ -62,9 +62,21 @@ enum ScriptResolver {
         try? FileManager.default.createDirectory(at: scriptsDir, withIntermediateDirectories: true)
         
         let scriptURL = scriptsDir.appendingPathComponent("\(configId.uuidString).sh")
-        
+
+        // Ensure the script runs through a shell. Inline content is arbitrary shell text
+        // (e.g. "npm run dev" or a multi-line script) that is executed directly via posix_spawn,
+        // which fails with ENOEXEC unless the file starts with a shebang. Prepend one when the
+        // author hasn't provided their own, so plain commands and multi-line scripts both run.
+        let trimmedLeading = content.drop(while: { $0 == " " || $0 == "\t" || $0 == "\n" })
+        let scriptBody: String
+        if trimmedLeading.hasPrefix("#!") {
+            scriptBody = content
+        } else {
+            scriptBody = "#!/bin/zsh\n" + content
+        }
+
         // Write the script
-        try? content.write(to: scriptURL, atomically: true, encoding: .utf8)
+        try? scriptBody.write(to: scriptURL, atomically: true, encoding: .utf8)
         
         // Make it executable
         try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)

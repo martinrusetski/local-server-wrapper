@@ -12,46 +12,44 @@ import AppKit
 /// View for creating and editing server configurations
 struct ConfigurationEditorView: View {
     // MARK: - Environment
-    
+
     @Environment(\.dismiss) private var dismiss
-    
+
     // MARK: - Properties
-    
+
     /// The configuration manager
     let configurationManager: ConfigurationManagerProtocol
-    
+
     /// The configuration being edited (nil for new configuration)
     let editingConfiguration: ServerConfiguration?
-    
+
     /// Callback when configuration is saved
     let onSave: () -> Void
-    
+
     // MARK: - State
-    
+
     @State private var name: String
-    @State private var command: String
-    @State private var arguments: String
+    /// The single free-form shell command / script the server launches with. Saved verbatim as the
+    /// inline script content and executed through the shell by the runtime.
+    @State private var commandText: String
     @State private var localhostURL: String
-    @State private var urlDetectionMode: URLDetectionMode
     @State private var runWithoutTerminal: Bool
-    @State private var readySignalPattern: String
-    @State private var portDetectionPattern: String
     @State private var customIconPath: String
     @State private var workingDirectory: String
-    @State private var scriptSource: ScriptSource
-    @State private var inlineScriptContent: String
-    
+
+    /// Advanced regexes are no longer editable here, but must be preserved on save so existing
+    /// configs don't silently lose their ready-signal / port-detection behavior.
+    private let preservedReadySignalPattern: String?
+    private let preservedPortDetectionPattern: String?
+
     // Validation errors
     @State private var nameError: String?
     @State private var commandError: String?
     @State private var urlError: String?
-    @State private var readySignalError: String?
-    @State private var portPatternError: String?
     @State private var iconError: String?
-    
+
     // UI state
     @State private var showingIconPicker = false
-    @State private var showingDirectoryPicker = false
     @State private var showingError = false
     @State private var errorMessage: String?
 
@@ -60,9 +58,9 @@ struct ConfigurationEditorView: View {
 
     /// Drives the "Test launch" feature: runs the server once to discover its URL.
     @StateObject private var probe = ServerProbe()
-    
+
     // MARK: - Initialization
-    
+
     init(
         configurationManager: ConfigurationManagerProtocol,
         editingConfiguration: ServerConfiguration? = nil,
@@ -71,47 +69,35 @@ struct ConfigurationEditorView: View {
         self.configurationManager = configurationManager
         self.editingConfiguration = editingConfiguration
         self.onSave = onSave
-        
+
         // Initialize state from editing configuration or with defaults
         if let config = editingConfiguration {
             _name = State(initialValue: config.name)
-            _command = State(initialValue: config.command)
-            _arguments = State(initialValue: config.arguments.joined(separator: " "))
+            _commandText = State(initialValue: Self.commandText(from: config))
             _localhostURL = State(initialValue: config.localhostURL ?? "")
-            _urlDetectionMode = State(initialValue: config.urlDetectionMode)
             _runWithoutTerminal = State(initialValue: config.runWithoutTerminal)
-            _readySignalPattern = State(initialValue: config.readySignalPattern ?? "")
-            _portDetectionPattern = State(initialValue: config.portDetectionPattern ?? "")
             _customIconPath = State(initialValue: config.customIconPath ?? "")
             _workingDirectory = State(initialValue: config.workingDirectory ?? "")
-            _scriptSource = State(initialValue: config.scriptSource)
-            _inlineScriptContent = State(initialValue: config.inlineScriptContent ?? "")
+            preservedReadySignalPattern = config.readySignalPattern
+            preservedPortDetectionPattern = config.portDetectionPattern
 
-            // Auto-expand Advanced if the existing config already uses any advanced option
-            let hasAdvanced = !(config.readySignalPattern ?? "").isEmpty
-                || !(config.portDetectionPattern ?? "").isEmpty
-                || !(config.workingDirectory ?? "").isEmpty
-                || config.runWithoutTerminal
-            _showAdvanced = State(initialValue: hasAdvanced)
+            // Auto-expand Advanced only if the one advanced option it still exposes is in use.
+            _showAdvanced = State(initialValue: config.runWithoutTerminal)
         } else {
             _name = State(initialValue: "")
-            _command = State(initialValue: "")
-            _arguments = State(initialValue: "")
-            _localhostURL = State(initialValue: "http://localhost:3000")
-            _urlDetectionMode = State(initialValue: .automatic)
+            _commandText = State(initialValue: "")
+            _localhostURL = State(initialValue: "")
             _runWithoutTerminal = State(initialValue: false)
-            _readySignalPattern = State(initialValue: "")
-            _portDetectionPattern = State(initialValue: "")
             _customIconPath = State(initialValue: "")
             _workingDirectory = State(initialValue: "")
-            _scriptSource = State(initialValue: .command)
-            _inlineScriptContent = State(initialValue: "")
+            preservedReadySignalPattern = nil
+            preservedPortDetectionPattern = nil
             _showAdvanced = State(initialValue: false)
         }
     }
-    
+
     // MARK: - Body
-    
+
     var body: some View {
         NavigationStack {
             Form {
@@ -145,99 +131,34 @@ struct ConfigurationEditorView: View {
 
                 // Launch
                 Section {
-                    Picker("Launch method", selection: $scriptSource) {
-                        Text("Command").tag(ScriptSource.command)
-                        Text("Script File").tag(ScriptSource.file)
-                        Text("Inline").tag(ScriptSource.inline)
-                    }
-                    .pickerStyle(.segmented)
-
-                    switch scriptSource {
-                    case .file:
-                        scriptFileFields
-                    case .inline:
-                        inlineScriptFields
-                    case .command:
-                        manualCommandFields
-                    }
+                    launchCommandFields
                 } header: {
                     Text("Launch")
                 } footer: {
-                    launchScriptFooter
+                    Text("The command that starts your server, run through the shell. Type anything you'd run in Terminal — \u{201C}npm run dev\u{201D}, a multi-line script, or a path to a start script.")
                 }
 
                 // Server URL
                 Section {
-                    Picker("Address", selection: $urlDetectionMode) {
-                        Text("Detect automatically").tag(URLDetectionMode.automatic)
-                        Text("Fixed URL").tag(URLDetectionMode.fixed)
-                    }
-                    .pickerStyle(.segmented)
-                    .onChange(of: urlDetectionMode) { _ in probe.reset() }
-
-                    switch urlDetectionMode {
-                    case .automatic:
-                        automaticDetectionFields
-                    case .fixed:
-                        fixedURLField
-                    }
+                    fixedURLField
+                    probeRow
                 } header: {
                     Text("Server")
                 } footer: {
-                    if urlDetectionMode == .automatic {
-                        Text("The app finds the port your server opens — no need to know it in advance. Works even when the server picks a free port automatically. Use \u{201C}Test launch\u{201D} to confirm it now.")
-                    } else {
-                        Text("Loaded exactly as entered, once the server is ready.")
-                    }
+                    Text("Leave empty to detect the URL and port automatically — even when the server picks a free port on its own. Enter a URL to load it exactly as written. Use \u{201C}Test launch\u{201D} to confirm it now.")
                 }
 
                 // Advanced options (collapsed by default)
                 Section {
                     DisclosureGroup(isExpanded: $showAdvanced) {
-                        VStack(alignment: .leading, spacing: 12) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                TextField("Ready signal pattern", text: $readySignalPattern, prompt: Text("optional · e.g. Ready on"))
-                                    .textFieldStyle(.roundedBorder)
-                                    .onChange(of: readySignalPattern) { _ in
-                                        validateReadySignal()
-                                    }
-                                    .help("Regular expression to detect when the server is ready (matched against its output).")
-                                    .accessibilityLabel("Ready Signal Pattern")
+                        VStack(alignment: .leading, spacing: 4) {
+                            Toggle("Run without a terminal", isOn: $runWithoutTerminal)
+                                .help("By default the server runs as if launched in Terminal, so scripts that only start when they detect an interactive terminal work. Turn this on only if a server misbehaves that way.")
+                                .accessibilityLabel("Run without a terminal")
 
-                                if let error = readySignalError {
-                                    Text(error)
-                                        .font(.caption)
-                                        .foregroundStyle(.red)
-                                }
-                            }
-
-                            VStack(alignment: .leading, spacing: 4) {
-                                TextField("Port detection pattern", text: $portDetectionPattern, prompt: Text("optional · e.g. localhost:(\\d+)"))
-                                    .textFieldStyle(.roundedBorder)
-                                    .onChange(of: portDetectionPattern) { _ in
-                                        validatePortPattern()
-                                    }
-                                    .help("Regular expression to extract the port number from the server output. The first capture group should contain the port.")
-                                    .accessibilityLabel("Port Detection Pattern")
-
-                                if let error = portPatternError {
-                                    Text(error)
-                                        .font(.caption)
-                                        .foregroundStyle(.red)
-                                }
-                            }
-
-                            workingDirectoryField
-
-                            VStack(alignment: .leading, spacing: 4) {
-                                Toggle("Run without a terminal", isOn: $runWithoutTerminal)
-                                    .help("By default the server runs as if launched in Terminal, so scripts that only start when they detect an interactive terminal work. Turn this on only if a server misbehaves that way.")
-                                    .accessibilityLabel("Run without a terminal")
-
-                                Text("Leave off for most servers. Turn on only if a server behaves worse when run as if in a terminal.")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
+                            Text("Leave off for most servers. Turn on only if a server behaves worse when run as if in a terminal.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                         .padding(.top, 6)
                     } label: {
@@ -256,7 +177,7 @@ struct ConfigurationEditorView: View {
                     .accessibilityLabel("Cancel")
                     .accessibilityHint("Closes the editor without saving changes")
                 }
-                
+
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         saveConfiguration()
@@ -287,81 +208,35 @@ struct ConfigurationEditorView: View {
         .frame(minWidth: 600, minHeight: 500)
         .onDisappear { probe.cancel() }
     }
-    
-    // MARK: - Launch Script Subviews
-    
+
+    // MARK: - Launch Subviews
+
     @ViewBuilder
-    private var scriptFileFields: some View {
+    private var launchCommandFields: some View {
         VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
-                    if command.isEmpty {
-                        Text("No script selected")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Label(FileManager.default.displayName(atPath: command), systemImage: "doc.text")
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .help(command)
-                    }
-
-                    Spacer()
-
-                    Button(command.isEmpty ? "Choose…" : "Change…") {
-                        chooseScriptFile()
-                    }
-                    .buttonStyle(.bordered)
-
-                    if !command.isEmpty {
-                        Button {
-                            command = ""
-                            workingDirectory = ""
-                            commandError = nil
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Clear script file")
-                    }
+            HStack {
+                Button("Choose script…") {
+                    chooseScriptFile()
                 }
+                .buttonStyle(.bordered)
+                .help("Pick a shell script. Its quoted path replaces the command below and its folder becomes \u{201C}Run in folder\u{201D}.")
 
-                if let error = commandError {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                }
+                Spacer()
             }
 
-            TextField("Arguments", text: $arguments, prompt: Text("optional · extra arguments"))
-                .textFieldStyle(.roundedBorder)
-                .help("Additional arguments appended after the script path.")
-        }
-    }
-
-    @ViewBuilder
-    private var inlineScriptFields: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            TextEditor(text: $inlineScriptContent)
-                .font(.system(.body, design: .monospaced))
-                .frame(minHeight: 120)
-                .border(Color.secondary.opacity(0.3))
-                .cornerRadius(4)
-                .help("Enter the shell script content. It will be saved and executed by the wrapper.")
-                .accessibilityLabel("Script content")
-        }
-    }
-
-    @ViewBuilder
-    private var manualCommandFields: some View {
-        VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                TextField("Command", text: $command, prompt: Text("e.g. npm, python3, /usr/local/bin/node"))
-                    .textFieldStyle(.roundedBorder)
-                    .onChange(of: command) { _ in
+                TextEditor(text: $commandText)
+                    .font(.system(.body, design: .monospaced))
+                    .frame(minHeight: 96)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                    )
+                    .onChange(of: commandText) { _ in
                         validateCommand()
                     }
-                    .help("The executable to run.")
+                    .help("The shell command or script that starts your server.")
+                    .accessibilityLabel("Launch command")
 
                 if let error = commandError {
                     Text(error)
@@ -370,19 +245,16 @@ struct ConfigurationEditorView: View {
                 }
             }
 
-            TextField("Arguments", text: $arguments, prompt: Text("e.g. run dev, -m http.server 8000"))
-                .textFieldStyle(.roundedBorder)
-                .help("Space-separated arguments to pass to the command.")
+            workingDirectoryField
         }
     }
 
     private var workingDirectoryField: some View {
         HStack(spacing: 8) {
-            TextField("Working directory", text: $workingDirectory, prompt: Text("optional · e.g. ~/Library/MyServer"))
+            TextField("Run in folder", text: $workingDirectory, prompt: Text("optional · defaults to your home folder"))
                 .textFieldStyle(.roundedBorder)
-                .help(scriptSource == .file
-                      ? "Defaults to the script file's location if left empty."
-                      : "The directory where the server process will run.")
+                .help("The folder the command runs in. Defaults to your home folder if left empty.")
+                .accessibilityLabel("Run in folder")
 
             Button("Choose…") {
                 chooseWorkingDirectory()
@@ -397,35 +269,24 @@ struct ConfigurationEditorView: View {
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Clear working directory")
+                .accessibilityLabel("Clear run folder")
             }
-        }
-    }
-
-    private var launchScriptFooter: Text {
-        switch scriptSource {
-        case .file:
-            return Text("Pick a shell script. Its folder is used as the working directory unless you set one under Advanced.")
-        case .inline:
-            return Text("Type a script to be saved and run by the wrapper.")
-        case .command:
-            return Text("Specify the executable and its arguments.")
         }
     }
 
     // MARK: - Server Address Subviews
 
-    /// The fixed-URL text field (used in `.fixed` mode, and as the fallback URL editor).
+    /// The optional URL text field. Empty ⇒ automatic detection; non-empty ⇒ loaded as written.
     private var fixedURLField: some View {
         VStack(alignment: .leading, spacing: 4) {
-            TextField("Localhost URL", text: $localhostURL, prompt: Text("http://localhost:3000"))
+            TextField("Server URL", text: $localhostURL, prompt: Text("optional · e.g. http://localhost:3000"))
                 .textFieldStyle(.roundedBorder)
                 .onChange(of: localhostURL) { _ in
                     validateURL()
                 }
-                .help("The URL where your server will be accessible once it's running.")
-                .accessibilityLabel("Localhost URL")
-                .accessibilityHint("Enter the URL where your server will be accessible")
+                .help("Leave empty to detect automatically, or enter the URL your server is reachable at.")
+                .accessibilityLabel("Server URL")
+                .accessibilityHint("Optional. Leave empty to detect the URL automatically")
                 .accessibilityValue(localhostURL.isEmpty ? "Empty" : localhostURL)
 
             if let error = urlError {
@@ -436,16 +297,13 @@ struct ConfigurationEditorView: View {
         }
     }
 
-    /// Automatic-mode content: a status line plus a "Test launch" button that runs the server once
-    /// and reports the URL it actually serves.
+    /// Status line plus a "Test launch" button that runs the server once and reports the URL it serves.
     @ViewBuilder
-    private var automaticDetectionFields: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                probeStatusView
-                Spacer()
-                probeActionButton
-            }
+    private var probeRow: some View {
+        HStack(spacing: 10) {
+            probeStatusView
+            Spacer()
+            probeActionButton
         }
     }
 
@@ -453,12 +311,14 @@ struct ConfigurationEditorView: View {
     private var probeStatusView: some View {
         switch probe.phase {
         case .idle:
-            Text("Detected when the server launches.")
+            Text("Run it once to confirm the URL.")
+                .font(.caption)
                 .foregroundStyle(.secondary)
         case .launching:
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
                 Text("Launching server and watching for its port…")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
         case .detected(let url):
@@ -469,7 +329,6 @@ struct ConfigurationEditorView: View {
                 Button("Pin as fixed URL") {
                     localhostURL = url.absoluteString
                     validateURL()
-                    urlDetectionMode = .fixed
                     probe.reset()
                 }
                 .buttonStyle(.link)
@@ -497,18 +356,13 @@ struct ConfigurationEditorView: View {
             .disabled(!canTestLaunch)
             .help(canTestLaunch
                   ? "Launch the server once to detect the URL it serves."
-                  : "Add a command or script first.")
+                  : "Enter a command first.")
         }
     }
 
     /// Whether there's enough in the form to actually launch something.
     private var canTestLaunch: Bool {
-        switch scriptSource {
-        case .command, .file:
-            return !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        case .inline:
-            return !inlineScriptContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
+        !commandText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// Build a throwaway configuration from the current form and run the probe against it.
@@ -517,25 +371,23 @@ struct ConfigurationEditorView: View {
     }
 
     /// A configuration built from the current editor fields, used for test launches (no persistence).
+    /// Built the same way as `saveConfiguration()` so a test launch exercises exactly what will run.
     private func draftConfiguration() -> ServerConfiguration {
-        let parsedArguments = arguments
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .split(separator: " ")
-            .map(String.init)
-            .filter { !$0.isEmpty }
         let trimmedWorkingDir = workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedInline = inlineScriptContent.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedURL = localhostURL.trimmingCharacters(in: .whitespacesAndNewlines)
 
         return ServerConfiguration(
             name: name.isEmpty ? "Test" : name,
-            command: command.trimmingCharacters(in: .whitespacesAndNewlines),
-            arguments: parsedArguments,
-            localhostURL: localhostURL.isEmpty ? nil : localhostURL.trimmingCharacters(in: .whitespacesAndNewlines),
-            urlDetectionMode: urlDetectionMode,
+            command: "",
+            arguments: [],
+            localhostURL: trimmedURL.isEmpty ? nil : trimmedURL,
+            urlDetectionMode: trimmedURL.isEmpty ? .automatic : .fixed,
             runWithoutTerminal: runWithoutTerminal,
+            readySignalPattern: preservedReadySignalPattern,
+            portDetectionPattern: preservedPortDetectionPattern,
             workingDirectory: trimmedWorkingDir.isEmpty ? nil : trimmedWorkingDir,
-            scriptSource: scriptSource,
-            inlineScriptContent: trimmedInline.isEmpty ? nil : trimmedInline
+            scriptSource: .inline,
+            inlineScriptContent: commandText
         )
     }
 
@@ -595,39 +447,28 @@ struct ConfigurationEditorView: View {
               : "Click to change the app icon.")
         .accessibilityLabel("App icon")
     }
-    
+
     // MARK: - Computed Properties
-    
-    /// Whether the form is valid and can be saved
+
     /// Whether the form is valid and can be saved
     private var isValid: Bool {
         let nameValid = !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && nameError == nil
+        let commandValid = !commandText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && commandError == nil
         let urlValid = urlError == nil
-        let signalValid = readySignalError == nil && portPatternError == nil
         let iconValid = iconError == nil
-        
-        switch scriptSource {
-        case .file:
-            return nameValid && !command.isEmpty && commandError == nil && urlValid && signalValid && iconValid
-        case .inline:
-            let contentValid = !inlineScriptContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            return nameValid && contentValid && urlValid && signalValid && iconValid
-        case .command:
-            let cmdValid = !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && commandError == nil
-            return nameValid && cmdValid && urlValid && signalValid && iconValid
-        }
+        return nameValid && commandValid && urlValid && iconValid
     }
-    
+
     // MARK: - Validation Methods
-    
+
     private func validateName() {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        
+
         if trimmedName.isEmpty {
             nameError = "Name is required"
             return
         }
-        
+
         // Check for duplicate names (only if creating new or name changed)
         if editingConfiguration == nil || editingConfiguration?.name != trimmedName {
             let existingConfigs = configurationManager.listConfigurations()
@@ -636,38 +477,28 @@ struct ConfigurationEditorView: View {
                 return
             }
         }
-        
+
         nameError = nil
     }
-    
+
+    /// The command is free-form shell text, so it can't be statically validated beyond presence.
     private func validateCommand() {
-        let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        if trimmedCommand.isEmpty {
-            commandError = "Command is required"
-            return
-        }
-        
-        let validator = ConfigurationValidator()
-        do {
-            try validator.validateCommand(trimmedCommand)
+        if commandText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            commandError = "A launch command is required"
+        } else {
             commandError = nil
-        } catch let error as ValidationError {
-            commandError = error.errorDescription
-        } catch {
-            commandError = "Invalid command"
         }
     }
-    
+
     private func validateURL() {
         let trimmedURL = localhostURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        
+
         // URL is optional
         if trimmedURL.isEmpty {
             urlError = nil
             return
         }
-        
+
         let validator = ConfigurationValidator()
         do {
             try validator.validateURL(trimmedURL)
@@ -678,88 +509,48 @@ struct ConfigurationEditorView: View {
             urlError = "Invalid URL format"
         }
     }
-    
-    private func validateReadySignal() {
-        let trimmedPattern = readySignalPattern.trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        // Ready signal is optional
-        if trimmedPattern.isEmpty {
-            readySignalError = nil
-            return
-        }
-        
-        let validator = ConfigurationValidator()
-        do {
-            try validator.validateRegexPattern(trimmedPattern)
-            readySignalError = nil
-        } catch let error as ValidationError {
-            readySignalError = error.errorDescription
-        } catch {
-            readySignalError = "Invalid regular expression"
-        }
-    }
-    
-    private func validatePortPattern() {
-        let trimmedPattern = portDetectionPattern.trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        // Port pattern is optional
-        if trimmedPattern.isEmpty {
-            portPatternError = nil
-            return
-        }
-        
-        let validator = ConfigurationValidator()
-        do {
-            try validator.validateRegexPattern(trimmedPattern)
-            portPatternError = nil
-        } catch let error as ValidationError {
-            portPatternError = error.errorDescription
-        } catch {
-            portPatternError = "Invalid regular expression"
-        }
-    }
-    
+
     private func validateIcon() {
         let trimmedPath = customIconPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        
+
         // Icon is optional
         if trimmedPath.isEmpty {
             iconError = nil
             return
         }
-        
+
         let fileManager = FileManager.default
         let expandedPath = NSString(string: trimmedPath).expandingTildeInPath
-        
+
         // Check if file exists
         guard fileManager.fileExists(atPath: expandedPath) else {
             iconError = "Icon file does not exist"
             return
         }
-        
+
         // Check if it's a regular file
         var isDirectory: ObjCBool = false
         fileManager.fileExists(atPath: expandedPath, isDirectory: &isDirectory)
-        
+
         if isDirectory.boolValue {
             iconError = "Icon path is a directory, not a file"
             return
         }
-        
+
         // Check file extension
         let validExtensions = ["png", "jpg", "jpeg", "icns", "ico", "gif", "tiff", "tif"]
         let pathExtension = NSString(string: expandedPath).pathExtension.lowercased()
-        
+
         if !validExtensions.contains(pathExtension) {
             iconError = "Icon must be an image file (png, jpg, icns, etc.)"
             return
         }
-        
+
         iconError = nil
     }
-    
+
     // MARK: - Action Methods
-    
+
     private func handleIconSelection(_ result: Result<[URL], Error>) {
         switch result {
         case .success(let urls):
@@ -772,20 +563,20 @@ struct ConfigurationEditorView: View {
             showingError = true
         }
     }
-    
+
     private func chooseWorkingDirectory() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.prompt = "Select"
-        panel.message = "Choose the working directory for this server"
-        
+        panel.message = "Choose the folder this server runs in"
+
         if panel.runModal() == .OK, let url = panel.url {
             workingDirectory = url.path
         }
     }
-    
+
     private func chooseScriptFile() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = false
@@ -794,81 +585,77 @@ struct ConfigurationEditorView: View {
         panel.allowedContentTypes = [.shellScript, .unixExecutable]
         panel.prompt = "Select"
         panel.message = "Choose a shell script to run"
-        
+
         if panel.runModal() == .OK, let url = panel.url {
-            command = url.path
+            // Replace the command with the quoted script path and default the run folder to its parent.
+            commandText = Self.shellQuote(url.path)
             workingDirectory = url.deletingLastPathComponent().path
-            commandError = nil
+            validateCommand()
         }
     }
-    
+
     private func saveConfiguration() {
         // Validate all fields one more time
         validateName()
         validateCommand()
         validateURL()
-        validateReadySignal()
-        validatePortPattern()
         validateIcon()
-        
+
         guard isValid else {
             errorMessage = "Please fix all validation errors before saving"
             showingError = true
             return
         }
-        
-        // Parse arguments
-        let parsedArguments = arguments
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .split(separator: " ")
-            .map { String($0) }
-            .filter { !$0.isEmpty }
-        
+
         let trimmedIconPath = customIconPath.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedWorkingDir = workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedInlineContent = inlineScriptContent.trimmingCharacters(in: .whitespacesAndNewlines)
-        
+        let trimmedURL = localhostURL.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Everything the editor saves is an inline script executed through the shell. The command
+        // field's text becomes the inline content verbatim; command/arguments stay empty.
+        let urlDetectionMode: URLDetectionMode = trimmedURL.isEmpty ? .automatic : .fixed
+
         // Create or update configuration
         var config: ServerConfiguration
         let configId: UUID
-        
+
         if let existing = editingConfiguration {
             configId = existing.id
             config = ServerConfiguration(
                 id: existing.id,
                 name: name.trimmingCharacters(in: .whitespacesAndNewlines),
-                command: command.trimmingCharacters(in: .whitespacesAndNewlines),
-                arguments: parsedArguments,
-                localhostURL: localhostURL.isEmpty ? nil : localhostURL.trimmingCharacters(in: .whitespacesAndNewlines),
+                command: "",
+                arguments: [],
+                localhostURL: trimmedURL.isEmpty ? nil : trimmedURL,
                 urlDetectionMode: urlDetectionMode,
                 runWithoutTerminal: runWithoutTerminal,
-                readySignalPattern: readySignalPattern.isEmpty ? nil : readySignalPattern.trimmingCharacters(in: .whitespacesAndNewlines),
-                portDetectionPattern: portDetectionPattern.isEmpty ? nil : portDetectionPattern.trimmingCharacters(in: .whitespacesAndNewlines),
+                readySignalPattern: preservedReadySignalPattern,
+                portDetectionPattern: preservedPortDetectionPattern,
                 customIconPath: nil, // set below after potential storage
                 workingDirectory: trimmedWorkingDir.isEmpty ? nil : trimmedWorkingDir,
-                scriptSource: scriptSource,
-                inlineScriptContent: trimmedInlineContent.isEmpty ? nil : trimmedInlineContent
+                scriptSource: .inline,
+                inlineScriptContent: commandText
             )
             config.createdAt = existing.createdAt
             config.touch()
         } else {
             config = ServerConfiguration(
                 name: name.trimmingCharacters(in: .whitespacesAndNewlines),
-                command: command.trimmingCharacters(in: .whitespacesAndNewlines),
-                arguments: parsedArguments,
-                localhostURL: localhostURL.isEmpty ? nil : localhostURL.trimmingCharacters(in: .whitespacesAndNewlines),
+                command: "",
+                arguments: [],
+                localhostURL: trimmedURL.isEmpty ? nil : trimmedURL,
                 urlDetectionMode: urlDetectionMode,
                 runWithoutTerminal: runWithoutTerminal,
-                readySignalPattern: readySignalPattern.isEmpty ? nil : readySignalPattern.trimmingCharacters(in: .whitespacesAndNewlines),
-                portDetectionPattern: portDetectionPattern.isEmpty ? nil : portDetectionPattern.trimmingCharacters(in: .whitespacesAndNewlines),
+                readySignalPattern: preservedReadySignalPattern,
+                portDetectionPattern: preservedPortDetectionPattern,
                 customIconPath: nil, // set below after potential storage
                 workingDirectory: trimmedWorkingDir.isEmpty ? nil : trimmedWorkingDir,
-                scriptSource: scriptSource,
-                inlineScriptContent: trimmedInlineContent.isEmpty ? nil : trimmedInlineContent
+                scriptSource: .inline,
+                inlineScriptContent: commandText
             )
             configId = config.id
         }
-        
+
         // Store the icon in managed storage if a custom icon was selected
         if !trimmedIconPath.isEmpty {
             if IconStorage.isManagedPath(trimmedIconPath) {
@@ -880,7 +667,7 @@ struct ConfigurationEditorView: View {
                 config.customIconPath = trimmedIconPath
             }
         }
-        
+
         // Save configuration
         do {
             if editingConfiguration != nil {
@@ -888,12 +675,38 @@ struct ConfigurationEditorView: View {
             } else {
                 try configurationManager.createConfiguration(config)
             }
-            
+
             onSave()
             dismiss()
         } catch {
             errorMessage = "Failed to save configuration: \(error.localizedDescription)"
             showingError = true
+        }
+    }
+
+    // MARK: - Migration Helpers
+
+    /// Wrap a string in single quotes for safe use in a shell command line.
+    private static func shellQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    /// Build the single command-field text from an existing configuration, collapsing the old
+    /// three launch modes into one shell command string.
+    private static func commandText(from config: ServerConfiguration) -> String {
+        switch config.scriptSource {
+        case .inline:
+            return config.inlineScriptContent ?? ""
+        case .command:
+            return ([config.command] + config.arguments)
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+        case .file:
+            let quotedPath = shellQuote(config.command)
+            let args = config.arguments.map { arg in
+                arg.rangeOfCharacter(from: .whitespaces) != nil ? shellQuote(arg) : arg
+            }
+            return ([quotedPath] + args).joined(separator: " ")
         }
     }
 }
@@ -917,7 +730,7 @@ struct ConfigurationEditorView: View {
         readySignalPattern: "Ready on",
         portDetectionPattern: "localhost:(\\d+)"
     )
-    
+
     return ConfigurationEditorView(
         configurationManager: ConfigurationManager(),
         editingConfiguration: config,

@@ -284,7 +284,13 @@ struct ConfigurationRowView: View {
             let args = configuration.arguments.joined(separator: " ")
             return args.isEmpty ? configuration.command : "\(configuration.command) \(args)"
         }
-        return configuration.scriptSource == .inline ? "Inline script" : "No command"
+        if let firstLine = configuration.inlineScriptContent?
+            .split(separator: "\n")
+            .map({ $0.trimmingCharacters(in: .whitespaces) })
+            .first(where: { !$0.isEmpty && !$0.hasPrefix("#") }) {
+            return firstLine
+        }
+        return "No command"
     }
 }
 
