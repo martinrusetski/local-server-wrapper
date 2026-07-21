@@ -63,3 +63,9 @@ fastlane/test_output
 
 # Archive (keep the directory but ignore contents if needed)
 # archive/
+
+# Distribution artifacts
+*.dmg
+*.profraw
+sparkle.tar.xz
+sparkle-tools/

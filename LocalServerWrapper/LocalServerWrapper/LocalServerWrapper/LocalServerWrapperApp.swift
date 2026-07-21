@@ -13,6 +13,7 @@ import UserNotifications
 struct LocalServerWrapperApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var configurationManager = ConfigurationManager()
+    @StateObject private var updaterController = UpdaterController()
 
     var body: some Scene {
         WindowGroup {
@@ -22,6 +23,10 @@ struct LocalServerWrapperApp: App {
         }
         .commands {
             CommandGroup(replacing: .newItem) { }
+            // Adds "Check for Updates…" to the app menu, just below "About".
+            CommandGroup(after: .appInfo) {
+                CheckForUpdatesCommand(updater: updaterController)
+            }
         }
     }
 }

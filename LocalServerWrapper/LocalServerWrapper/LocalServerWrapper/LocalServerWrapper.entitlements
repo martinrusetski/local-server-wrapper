@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+        The app is distributed ad-hoc signed (no Developer ID). Under the
+        hardened runtime, loading the Developer-ID-signed Sparkle.framework —
+        or, once re-signed ad-hoc in CI, a differently-sealed one — would trip
+        library validation. This entitlement lets the app load it.
+
+        The app is intentionally NOT sandboxed: it writes generated .app bundles
+        to disk, installs the shared ServerRuntime.framework into
+        ~/Library/Frameworks, and ad-hoc signs the bundles it creates.
+    -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+</dict>
+</plist>

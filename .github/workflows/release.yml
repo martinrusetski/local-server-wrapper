@@ -1,0 +1,157 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-release:
+    # macos-26 ships Xcode 26 — required for the objectVersion 77 project format
+    # and the .icon app-icon asset catalog.
+    runs-on: macos-26
+    permissions:
+      contents: write
+
+    env:
+      # Shared ad-hoc signing flags. CODE_SIGN_IDENTITY="-" makes Xcode ad-hoc
+      # sign (no Developer ID cert needed, matching how generated bundles and the
+      # local scripts sign). Manual style + empty team avoids provisioning.
+      SIGN_FLAGS: >-
+        CODE_SIGN_IDENTITY=-
+        CODE_SIGN_STYLE=Manual
+        CODE_SIGNING_REQUIRED=YES
+        CODE_SIGNING_ALLOWED=YES
+        DEVELOPMENT_TEAM=
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compute version numbers
+        id: vars
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "dmg=LocalServerWrapper-${TAG}.dmg" >> "$GITHUB_OUTPUT"
+
+      - name: Download Sparkle tools (sign_update)
+        run: |
+          SPARKLE_VERSION="2.9.4"
+          curl -sL "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-${SPARKLE_VERSION}.tar.xz" -o sparkle.tar.xz
+          mkdir -p sparkle-tools
+          tar -xf sparkle.tar.xz -C sparkle-tools
+          echo "SPARKLE_BIN_DIR=$(pwd)/sparkle-tools/bin" >> "$GITHUB_ENV"
+
+      - name: Build ServerAppBundle (runtime framework + thin launcher)
+        working-directory: ServerAppBundle
+        run: |
+          xcodebuild -scheme ServerAppBundle -configuration Release \
+            -derivedDataPath build clean build $SIGN_FLAGS
+
+      - name: Build LocalServerWrapper (manager)
+        working-directory: LocalServerWrapper
+        run: |
+          xcodebuild -scheme LocalServerWrapper -configuration Release \
+            -derivedDataPath build clean build $SIGN_FLAGS \
+            MARKETING_VERSION="${{ steps.vars.outputs.version }}" \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}"
+
+      - name: Inject Sparkle feed keys, embed runtime, re-sign
+        run: |
+          APP="LocalServerWrapper/build/Build/Products/Release/LocalServerWrapper.app"
+          SERVER_PRODUCTS="ServerAppBundle/build/Build/Products/Release"
+          ENTITLEMENTS="LocalServerWrapper/LocalServerWrapper/LocalServerWrapper/LocalServerWrapper.entitlements"
+
+          ./inject-sparkle-keys.sh "$APP"
+          ./embed-runtime.sh "$APP" "$SERVER_PRODUCTS"
+
+          # Re-sign the outer app ad-hoc so the injected plist + embedded products
+          # are sealed. No --deep: the nested Sparkle.framework, ServerRuntime and
+          # launcher keep the ad-hoc signatures Xcode already applied.
+          codesign --sign - --force --options runtime \
+            --entitlements "$ENTITLEMENTS" "$APP"
+          codesign --verify --verbose "$APP"
+
+      - name: Create DMG
+        run: |
+          APP_BUNDLE="LocalServerWrapper.app"
+          APP="LocalServerWrapper/build/Build/Products/Release/${APP_BUNDLE}"
+          VOL_NAME="Local Server Wrapper"
+          DMG="${{ steps.vars.outputs.dmg }}"
+          STAGING="dmg_staging"
+
+          rm -rf "$STAGING"
+          mkdir -p "$STAGING"
+          cp -R "$APP" "$STAGING/"
+          ln -s /Applications "$STAGING/Applications"
+
+          cat > "$STAGING/README.txt" << 'TXTEOF'
+          Local Server Wrapper — Installation
+
+          1. Drag LocalServerWrapper.app onto the Applications folder.
+
+          2. This app is not notarized, so macOS blocks it on first launch.
+             To allow it, open Terminal and run:
+
+               xattr -cr /Applications/LocalServerWrapper.app
+
+             Then double-click the app to launch it.
+             (Or use System Settings -> Privacy & Security -> Open Anyway.)
+
+          3. Future updates install automatically from within the app —
+             you won't need to re-download this installer or repeat step 2.
+          TXTEOF
+
+          hdiutil create -srcfolder "$STAGING" -volname "$VOL_NAME" \
+            -fs HFS+ -fsargs "-c c=64,a=16,e=16" \
+            -format UDZO -imagekey zlib-level=9 \
+            -ov "$DMG"
+          rm -rf "$STAGING"
+
+      - name: Sign update and update appcast
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          DMG="${{ steps.vars.outputs.dmg }}"
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${{ steps.vars.outputs.tag }}/${DMG}"
+          ./update-appcast.sh \
+            "${{ steps.vars.outputs.version }}" \
+            "${{ github.run_number }}" \
+            "$DMG" \
+            "$DOWNLOAD_URL"
+
+      - name: Update Homebrew cask
+        run: |
+          DMG="${{ steps.vars.outputs.dmg }}"
+          SHA256=$(shasum -a 256 "$DMG" | cut -d ' ' -f 1)
+          VERSION="${{ steps.vars.outputs.version }}"
+          # The cask URL is built from #{version}, so only version + sha256 change.
+          sed -i '' \
+            -e "s/version \".*\"/version \"$VERSION\"/" \
+            -e "s/sha256 \".*\"/sha256 \"$SHA256\"/" \
+            Casks/local-server-wrapper.rb
+
+      - name: Commit updated cask + appcast
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/local-server-wrapper.rb appcast.xml
+          git commit -m "Update cask and appcast for ${{ steps.vars.outputs.tag }}" || true
+          git push origin HEAD:main
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.vars.outputs.tag }}"
+          DMG="${{ steps.vars.outputs.dmg }}"
+          # actions/checkout leaves the tag ref peeled to its commit, so git would
+          # read the commit message. Re-fetch the tag object for the real notes.
+          git fetch --force origin "refs/tags/${TAG}:refs/tags/${TAG}"
+          NOTES=$(git tag -l --format='%(contents:body)' "$TAG")
+          if [ -z "$NOTES" ]; then
+            NOTES="See the [README](https://github.com/${{ github.repository }}/blob/main/README.md) for installation and usage."
+          fi
+          gh release create "$TAG" --title "$TAG" --notes "$NOTES" "$DMG"

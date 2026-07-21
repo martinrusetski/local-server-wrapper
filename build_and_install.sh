@@ -56,6 +56,19 @@ for product in "$WRAPPER_APP" "$SERVER_APP" "$SERVER_FW"; do
     fi
 done
 
+# Make the installed copy self-contained, exactly like a released build: inject
+# the Sparkle feed keys, embed the runtime products into the app (so
+# ProductLocator finds them without dev build folders), then ad-hoc re-sign so
+# the changes are sealed.
+echo ""
+echo "=== Preparing app (Sparkle keys + embedded runtime, distribution parity) ==="
+ENTITLEMENTS="$SCRIPT_DIR/LocalServerWrapper/LocalServerWrapper/LocalServerWrapper/LocalServerWrapper.entitlements"
+"$SCRIPT_DIR/inject-sparkle-keys.sh" "$WRAPPER_APP"
+"$SCRIPT_DIR/embed-runtime.sh" "$WRAPPER_APP" "$SCRIPT_DIR/ServerAppBundle/$PRODUCTS"
+codesign --sign - --force --options runtime --entitlements "$ENTITLEMENTS" "$WRAPPER_APP"
+codesign --verify --verbose "$WRAPPER_APP"
+echo "✓ App prepared"
+
 echo ""
 echo "=== Installing to /Applications ==="
 
