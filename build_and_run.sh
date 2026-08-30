@@ -13,7 +13,7 @@ cd "$(dirname "$0")/LocalServerWrapper"
 xcodebuild -scheme LocalServerWrapper -configuration Release -derivedDataPath build
 
 echo ""
-echo "📦 Installing shared ServerRuntime.framework to ~/Library/Frameworks..."
+echo "📦 Installing compatibility ServerRuntime.framework for legacy launchers..."
 mkdir -p "$HOME/Library/Frameworks"
 rm -rf "$HOME/Library/Frameworks/ServerRuntime.framework"
 cp -R "$ROOT/ServerAppBundle/build/Build/Products/Release/ServerRuntime.framework" "$HOME/Library/Frameworks/"

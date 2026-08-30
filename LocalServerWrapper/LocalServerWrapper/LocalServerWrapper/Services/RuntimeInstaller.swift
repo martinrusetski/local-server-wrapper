@@ -2,12 +2,10 @@
 //  RuntimeInstaller.swift
 //  LocalServerWrapper
 //
-//  Keeps ~/Library/Frameworks/ServerRuntime.framework in sync with the build the manager knows
-//  about (located via ProductLocator). Generated launcher bundles load the framework from there via
-//  the absolute rpath baked into the launcher template, so refreshing it here propagates a new
-//  runtime to every generated server on its next launch — the point of Step 2.
+//  Keeps ~/Library/Frameworks/ServerRuntime.framework in sync for legacy thin launchers generated
+//  before runtime embedding was introduced. New generated launchers are self-contained.
 //
-//  Call installIfNeeded() at app launch and before generating a bundle.
+//  Called at manager launch only for compatibility with existing generated bundles.
 //
 
 import Foundation

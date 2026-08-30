@@ -30,7 +30,7 @@ Local Server Wrapper handles both halves for any tool: each configured server be
 - Create, edit, search, and delete server configurations: name, command, arguments, URL, and a custom icon.
 - Generate a standalone `.app` bundle from any configuration.
 - Generated apps read their configuration live from a shared store, so editing a configuration in the manager takes effect the next time the generated app launches — no need to regenerate the bundle.
-- Generated bundles are thin launchers that share one `ServerRuntime.framework` installed in `~/Library/Frameworks`. The manager installs and updates this runtime, which keeps bundles small and means a runtime update reaches every generated app at once.
+- Newly generated bundles are self-contained and carry a signed `ServerRuntime.framework` under `Contents/Frameworks`. This prevents launchers from resolving executable code from a user-home search path. Regenerate an existing launcher to move it to the self-contained format; the manager keeps updating the old shared runtime temporarily so legacy launchers continue to work during that transition.
 - Configurations are persisted as JSON with automatic backups.
 
 ## Project Structure
@@ -102,7 +102,7 @@ Automatic backups are created at:
 
 The shared runtime framework is installed to:
 ```
-~/Library/Frameworks/ServerRuntime.framework
+~/Library/Frameworks/ServerRuntime.framework  # compatibility runtime for legacy thin launchers
 ```
 
 ## Testing

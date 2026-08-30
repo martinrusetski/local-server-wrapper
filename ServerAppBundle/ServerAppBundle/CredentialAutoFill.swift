@@ -12,30 +12,27 @@ private let logger = OSLog(subsystem: "com.localserverwrapper.serverappbundle", 
 struct CredentialAutoFill {
 
     static func injectCredentials(_ credentials: [Credential], into webView: WKWebView) {
-        guard !credentials.isEmpty else { return }
+        // Enforce the origin boundary in native code before any secret crosses into WebKit.
+        // The JavaScript origin check below remains as defense in depth for navigation races.
+        let matchingCredentials = credentialsForInjection(credentials, pageURL: webView.url)
+        guard !matchingCredentials.isEmpty else { return }
 
-        guard let jsonData = try? JSONEncoder().encode(credentials),
-              let jsonString = String(data: jsonData, encoding: .utf8) else {
+        guard let jsonData = try? JSONEncoder().encode(matchingCredentials) else {
             os_log(.error, log: logger, "Failed to encode credentials for auto-fill")
             return
         }
-
-        let escapedJSON = jsonString
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "'", with: "\\'")
+        // Base64 keeps user-controlled credential text out of the generated JavaScript syntax.
+        let encodedJSON = jsonData.base64EncodedString()
 
         let js = """
         (function() {
-            window.__savedCredentials = JSON.parse('\(escapedJSON)');
-
-            if (window.__autoFillListenersInstalled) { showDropdowns(); return; }
-            window.__autoFillListenersInstalled = true;
+            const credentialBytes = Uint8Array.from(atob('\(encodedJSON)'), function(c) { return c.charCodeAt(0); });
+            const credentials = JSON.parse(new TextDecoder().decode(credentialBytes));
 
             function showDropdowns() {
                 var existing = document.querySelector('.__credentialDropdown');
                 if (existing) existing.parentNode.removeChild(existing);
 
-                var credentials = window.__savedCredentials || [];
                 if (!credentials.length) return;
 
                 var currentPath = window.location.pathname;
@@ -83,7 +80,10 @@ struct CredentialAutoFill {
                         row.style.background = 'rgba(0,122,255,0.08)';
                     });
                     row.addEventListener('mousedown', function(e) { e.preventDefault(); });
-                    row.addEventListener('click', function() {
+                    row.addEventListener('click', function(event) {
+                        // Shared DOM nodes are visible to page scripts. Require a real user gesture
+                        // so page-world code cannot call row.click() to extract the password field.
+                        if (!event.isTrusted) return;
                         var setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
                         setter.call(match.userEl, match.cred.username);
                         match.userEl.dispatchEvent(new Event('input', {bubbles: true}));
@@ -171,12 +171,29 @@ struct CredentialAutoFill {
         })();
         """
 
-        webView.evaluateJavaScript(js) { _, error in
-            if let error = error {
+        // Run in WebKit's isolated client world. Page scripts cannot access the credential array
+        // or the listener closures; only the explicit user-selected field values cross to the DOM.
+        webView.evaluateJavaScript(js, in: nil, in: .defaultClient) { result in
+            if case .failure(let error) = result {
                 os_log(.error, log: logger, "Auto-fill JS evaluation failed: %{public}@", error.localizedDescription)
             } else {
                 os_log(.info, log: logger, "Credential auto-fill configured")
             }
+        }
+    }
+
+    static func credentialsForInjection(_ credentials: [Credential], pageURL: URL?) -> [Credential] {
+        guard let pageOrigin = Credential.normalizedOrigin(from: pageURL) else { return [] }
+        return credentials.compactMap { credential in
+            guard let origin = credential.origin,
+                  let normalized = Credential.normalizedOrigin(fromURLString: origin) else { return nil }
+            guard normalized == pageOrigin else { return nil }
+
+            // Encode the canonical authorized origin so the isolated-world navigation-race check
+            // uses the same representation as WebKit's window.location.origin.
+            var authorizedCredential = credential
+            authorizedCredential.origin = pageOrigin
+            return authorizedCredential
         }
     }
 }

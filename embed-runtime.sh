@@ -1,12 +1,12 @@
 #!/bin/bash
 # Copies the two ServerAppBundle build products the manager needs at runtime —
-# the thin launcher template (ServerAppBundle.app) and the shared
-# ServerRuntime.framework — into the manager app's Contents/Resources.
+# the self-contained launcher template (ServerAppBundle.app) and a legacy
+# compatibility copy of ServerRuntime.framework into the manager app's Contents/Resources.
 #
 # This is what makes a *distributed* copy of the manager self-contained:
 # ProductLocator's first search case looks for these inside the app bundle, so a
-# fresh install can install the shared runtime to ~/Library/Frameworks and stamp
-# out generated server bundles without any dev build folders present.
+# fresh install can stamp out generated server bundles without dev build folders and can keep
+# older thin launchers working until the user regenerates them.
 #
 # The caller MUST code-sign the manager app AFTER this runs — adding files to
 # Contents/Resources invalidates the app's existing signature seal.

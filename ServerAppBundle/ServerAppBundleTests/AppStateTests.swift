@@ -7,7 +7,7 @@
 
 import XCTest
 import Combine
-@testable import ServerAppBundle
+@testable import ServerRuntime
 
 @MainActor
 final class AppStateTests: XCTestCase {
@@ -43,7 +43,6 @@ final class AppStateTests: XCTestCase {
         XCTAssertNotNil(appState.processManager)
         XCTAssertNotNil(appState.readinessDetector)
         XCTAssertNotNil(appState.webViewModel)
-        XCTAssertFalse(appState.showCloseConfirmation)
     }
     
     func testAppStateWithNoReadySignal() {
@@ -197,47 +196,6 @@ final class AppStateTests: XCTestCase {
         // This is more of a smoke test
     }
     
-    // MARK: - Close Confirmation State Tests
-    
-    func testShowCloseConfirmationInitialState() {
-        // Given: A new AppState
-        let config = ServerConfiguration(
-            name: "Test Server",
-            command: "/bin/echo",
-            arguments: ["test"],
-            localhostURL: "http://localhost:3000"
-        )
-        
-        let appState = AppState(configuration: config)
-        
-        // Then: Close confirmation should be false initially
-        XCTAssertFalse(appState.showCloseConfirmation)
-    }
-    
-    func testShowCloseConfirmationCanBeToggled() {
-        // Given: An AppState
-        let config = ServerConfiguration(
-            name: "Test Server",
-            command: "/bin/echo",
-            arguments: ["test"],
-            localhostURL: "http://localhost:3000"
-        )
-        
-        let appState = AppState(configuration: config)
-        
-        // When: Toggling the confirmation state
-        appState.showCloseConfirmation = true
-        
-        // Then: State should be updated
-        XCTAssertTrue(appState.showCloseConfirmation)
-        
-        // When: Toggling back
-        appState.showCloseConfirmation = false
-        
-        // Then: State should be updated
-        XCTAssertFalse(appState.showCloseConfirmation)
-    }
-    
     // MARK: - Error Handling Tests
     
     func testStartServerWithInvalidCommand() {
@@ -380,5 +338,38 @@ final class AppStateTests: XCTestCase {
         
         // Then: Timeout alert should be false initially
         XCTAssertFalse(appState.showTimeoutAlert)
+    }
+
+    func testCredentialAutoFillFiltersSecretsBeforeWebKitInjection() {
+        let matching = Credential(username: "alice", password: "secret", origin: "http://localhost:3000")
+        let otherOrigin = Credential(username: "mallory", password: "other", origin: "https://example.com")
+        let legacy = Credential(username: "legacy", password: "old", origin: nil)
+
+        let result = CredentialAutoFill.credentialsForInjection(
+            [matching, otherOrigin, legacy],
+            pageURL: URL(string: "http://LOCALHOST:3000/login")
+        )
+
+        XCTAssertEqual(result, [matching])
+    }
+
+    func testCredentialAutoFillRejectsNonHTTPAndMissingPageOrigins() {
+        let credential = Credential(username: "alice", password: "secret", origin: "http://localhost")
+
+        XCTAssertTrue(CredentialAutoFill.credentialsForInjection([credential], pageURL: nil).isEmpty)
+        XCTAssertTrue(CredentialAutoFill.credentialsForInjection([credential], pageURL: URL(string: "file:///tmp/login.html")).isEmpty)
+    }
+
+    func testOriginNormalizationMatchesWebKitDefaultPortSerialization() {
+        XCTAssertEqual(AppState.origin(fromURLString: "HTTP://LOCALHOST:80/login"), "http://localhost")
+        XCTAssertEqual(AppState.origin(fromURLString: "https://Example.com:443/login"), "https://example.com")
+        XCTAssertEqual(AppState.origin(fromURLString: "https://Example.com:8443/login"), "https://example.com:8443")
+
+        let legacyRepresentation = Credential(username: "alice", password: "secret", origin: "HTTP://LOCALHOST:80")
+        let selected = CredentialAutoFill.credentialsForInjection(
+            [legacyRepresentation],
+            pageURL: URL(string: "http://localhost/login")
+        )
+        XCTAssertEqual(selected.first?.origin, "http://localhost")
     }
 }

@@ -84,13 +84,13 @@ fi
 
 echo "✓ Installed to /Applications/LocalServerWrapper.app"
 
-# Install the shared runtime so generated thin launchers can load it from ~/Library/Frameworks.
+# Keep the shared runtime updated for legacy thin launchers. Newly generated launchers embed it.
 echo ""
 echo "=== Installing shared ServerRuntime.framework to ~/Library/Frameworks ==="
 mkdir -p "$HOME/Library/Frameworks"
 rm -rf "$HOME/Library/Frameworks/ServerRuntime.framework"
 if cp -R "$SERVER_FW" "$HOME/Library/Frameworks/"; then
-    echo "✓ Installed shared runtime (generated bundles are thin launchers that load it)"
+    echo "✓ Installed compatibility runtime for legacy launchers"
 else
     echo "✗ Failed to install ServerRuntime.framework to ~/Library/Frameworks"
     exit 1

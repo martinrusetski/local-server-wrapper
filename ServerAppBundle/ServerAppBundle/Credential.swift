@@ -66,4 +66,29 @@ struct Credential: Codable, Identifiable, Equatable {
         if let lhs = pagePath, let rhs = other.pagePath, lhs == rhs { return true }
         return false
     }
+
+    /// Return a canonical HTTP(S) origin matching `window.location.origin`.
+    /// Default ports are omitted because WebKit serializes them that way.
+    static func normalizedOrigin(from url: URL?) -> String? {
+        guard let url,
+              let rawScheme = url.scheme,
+              let rawHost = url.host else { return nil }
+
+        let scheme = rawScheme.lowercased()
+        guard scheme == "http" || scheme == "https" else { return nil }
+
+        var components = URLComponents()
+        components.scheme = scheme
+        components.host = rawHost.lowercased()
+        if let port = url.port,
+           !((scheme == "http" && port == 80) || (scheme == "https" && port == 443)) {
+            components.port = port
+        }
+        return components.string
+    }
+
+    static func normalizedOrigin(fromURLString urlString: String?) -> String? {
+        guard let urlString, let url = URL(string: urlString) else { return nil }
+        return normalizedOrigin(from: url)
+    }
 }

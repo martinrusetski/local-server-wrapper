@@ -2,9 +2,8 @@
 //  ProductLocator.swift
 //  LocalServerWrapper
 //
-//  Locates the build products the manager needs at generation time: the thin launcher template
-//  (ServerAppBundle.app) and the shared ServerRuntime.framework. Both are products of the
-//  ServerAppBundle project and live side-by-side in the same Products directory.
+//  Locates the self-contained launcher template and the separate ServerRuntime.framework retained
+//  for compatibility with legacy thin launchers. Both are ServerAppBundle project products.
 //
 //  Search order (mirrors the original generator logic): embedded-in-manager resource → dev
 //  workspace Release build → DerivedData Release build.
@@ -62,12 +61,12 @@ enum ProductLocator {
         return nil
     }
 
-    /// The thin launcher template (ServerAppBundle.app) the generator copies per bundle.
+    /// The self-contained launcher template (ServerAppBundle.app) the generator copies per bundle.
     static func launcherTemplate() -> URL? {
         located(launcherTemplateName)
     }
 
-    /// The shared ServerRuntime.framework that gets installed into ~/Library/Frameworks.
+    /// The compatibility ServerRuntime.framework installed for legacy thin launchers.
     static func runtimeFramework() -> URL? {
         located(frameworkName)
     }

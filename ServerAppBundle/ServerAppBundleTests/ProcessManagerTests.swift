@@ -6,7 +6,7 @@
 //
 
 import XCTest
-@testable import ServerAppBundle
+@testable import ServerRuntime
 
 @MainActor
 final class ProcessManagerTests: XCTestCase {

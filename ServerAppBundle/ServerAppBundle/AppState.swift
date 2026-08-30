@@ -208,14 +208,7 @@ class AppState: ObservableObject {
 
     /// Build a `window.location.origin`-style string ("scheme://host[:port]") from a URL string.
     static func origin(fromURLString urlString: String?) -> String? {
-        guard let urlString = urlString,
-              let comps = URLComponents(string: urlString),
-              let scheme = comps.scheme,
-              let host = comps.host else { return nil }
-        if let port = comps.port {
-            return "\(scheme)://\(host):\(port)"
-        }
-        return "\(scheme)://\(host)"
+        Credential.normalizedOrigin(fromURLString: urlString)
     }
 
     /// Save a detected credential to Keychain

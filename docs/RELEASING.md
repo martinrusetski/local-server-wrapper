@@ -65,7 +65,7 @@ If you later enroll in notarization, the switch is: sign with your Developer ID 
 | --- | --- |
 | `.github/workflows/release.yml` | The whole release pipeline, triggered by a `v*` tag. |
 | `inject-sparkle-keys.sh` | Writes `SUFeedURL` + `SUPublicEDKey` into the built app's `Info.plist`. |
-| `embed-runtime.sh` | Copies `ServerRuntime.framework` + `ServerAppBundle.app` into the manager so a fresh install can install the shared runtime and generate server apps. |
+| `embed-runtime.sh` | Copies the self-contained `ServerAppBundle.app` plus a legacy compatibility copy of `ServerRuntime.framework` into the manager. |
 | `update-appcast.sh` | Signs a DMG and prepends a new entry to `appcast.xml`. |
 | `make-dmg.sh` | Local dry run of the whole build + package sequence. |
 | `appcast.xml` | The Sparkle update feed the installed app polls. |

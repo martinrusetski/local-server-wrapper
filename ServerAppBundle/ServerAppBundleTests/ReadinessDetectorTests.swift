@@ -6,7 +6,7 @@
 //
 
 import XCTest
-@testable import ServerAppBundle
+@testable import ServerRuntime
 
 @MainActor
 class ReadinessDetectorTests: XCTestCase {

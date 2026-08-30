@@ -8,7 +8,7 @@
 #                             where generate_keys stored it)
 #
 # The sign_update tool is located from, in order:
-#   1. $SPARKLE_BIN_DIR      (CI points this at the downloaded Sparkle tools)
+#   1. $SPARKLE_BIN_DIR      (CI points this at SwiftPM's checksum-verified Sparkle artifact)
 #   2. the Xcode SourcePackages artifacts under LocalServerWrapper/build
 #
 # Usage:

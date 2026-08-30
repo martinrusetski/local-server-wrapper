@@ -38,8 +38,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     func applicationDidFinishLaunching(_ notification: Notification) {
         UNUserNotificationCenter.current().delegate = self
 
-        // Refresh the shared runtime so existing generated bundles pick up a newer runtime on their
-        // next launch (Step 2). Runs off the main thread since it may copy a framework on disk.
+        // Refresh the compatibility runtime for older thin generated bundles. New bundles embed
+        // their runtime. This runs off the main thread since it may copy a framework on disk.
         DispatchQueue.global(qos: .utility).async {
             RuntimeInstaller.installIfNeeded()
         }

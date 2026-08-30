@@ -7,7 +7,7 @@
 
 import XCTest
 import SwiftUI
-@testable import ServerAppBundle
+@testable import ServerRuntime
 
 @MainActor
 final class TerminalViewTests: XCTestCase {

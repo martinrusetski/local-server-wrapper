@@ -48,16 +48,6 @@ class AppBundleGenerator: AppBundleGeneratorProtocol {
         // Report progress: Starting (0%)
         progressHandler?(0.0, "Starting bundle generation...")
 
-        // Ensure the shared runtime is installed to ~/Library/Frameworks; the thin launcher we copy
-        // below loads it from there (Step 2). Fail loudly if it can't be made available, otherwise
-        // generated bundles would launch-crash with a missing framework.
-        guard RuntimeInstaller.installIfNeeded() else {
-            throw GenerationError.resourceCopyFailed("""
-                Shared ServerRuntime.framework could not be installed to ~/Library/Frameworks.
-                Build the ServerAppBundle scheme (Release) first so the framework exists.
-                """)
-        }
-        
         // Create bundle URL with .app extension
         let bundleName = sanitizeBundleName(configuration.name)
         let bundleURL = outputPath.appendingPathComponent("\(bundleName).app")
@@ -115,11 +105,7 @@ class AppBundleGenerator: AppBundleGeneratorProtocol {
         
         // Report progress: Code signing (90-100%)
         progressHandler?(0.9, "Signing bundle...")
-        do {
-            try signAdHoc(bundleURL)
-        } catch {
-            os_log(.error, log: logger, "Ad-hoc signing failed: %{public}@, bundle still functional without Keychain", error.localizedDescription)
-        }
+        try signAdHoc(bundleURL)
         
         // Clear quarantine from the finished bundle. The launcher template (and any user-provided
         // custom icon) may carry com.apple.quarantine if the manager itself was downloaded, and
@@ -137,12 +123,10 @@ class AppBundleGenerator: AppBundleGeneratorProtocol {
     
     // MARK: - Private Methods
 
-    /// Copy the thin launcher template (ServerAppBundle.app) to the destination bundle URL.
+    /// Copy the self-contained launcher template (ServerAppBundle.app) to the destination bundle URL.
     ///
-    /// The template is now a *thin launcher*: it loads the shared ServerRuntime.framework from
-    /// ~/Library/Frameworks via the absolute rpath baked into its binary, so each generated copy is
-    /// small and no longer embeds its own runtime. No `install_name_tool` patch is needed — the
-    /// template already carries the right rpath.
+    /// The template embeds its signed ServerRuntime.framework under Contents/Frameworks and uses
+    /// only the bundle-relative rpath, so generated apps do not execute code from a user-home path.
     ///
     /// - Parameter bundleURL: The URL of the bundle being created
     /// - Throws: GenerationError.resourceCopyFailed if the template is missing or copying fails
@@ -153,7 +137,7 @@ class AppBundleGenerator: AppBundleGeneratorProtocol {
                 Launcher template (ServerAppBundle.app) not found.
 
                 For development: build the ServerAppBundle scheme (Release) first.
-                For distribution: ship ServerAppBundle.app (and ServerRuntime.framework) with the manager.
+                For distribution: ship the self-contained ServerAppBundle.app with the manager.
                 """)
         }
 
@@ -207,8 +191,9 @@ class AppBundleGenerator: AppBundleGeneratorProtocol {
         return trimmed.isEmpty ? "ServerApp" : trimmed
     }
     
-    /// Sign the app bundle with a simple ad-hoc signature (no entitlements)
-    /// This enables Keychain access for the generated bundle
+    /// Re-sign the modified app bundle with hardened runtime enabled, then verify the complete
+    /// nested bundle. Generation fails closed because an unsigned or partially signed launcher
+    /// must not be presented as a usable credential-bearing app.
     /// - Parameter bundleURL: The URL of the bundle to sign
     /// - Throws: GenerationError.signingFailed if signing fails
     private func signAdHoc(_ bundleURL: URL) throws {
@@ -216,7 +201,12 @@ class AppBundleGenerator: AppBundleGeneratorProtocol {
         
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
-        process.arguments = ["--force", "--sign", "-", bundleURL.path]
+        process.arguments = [
+            "--force", "--sign", "-",
+            "--options", "runtime",
+            "--preserve-metadata=entitlements",
+            bundleURL.path
+        ]
         
         let errorPipe = Pipe()
         process.standardError = errorPipe
@@ -231,15 +221,32 @@ class AppBundleGenerator: AppBundleGeneratorProtocol {
                 throw GenerationError.signingFailed(errorOutput)
             }
             
-            os_log(.info, log: logger, "Bundle signed successfully")
+            try verifySignature(bundleURL)
+            os_log(.info, log: logger, "Bundle signed and verified successfully")
         } catch let error as GenerationError {
             throw error
         } catch {
             throw GenerationError.signingFailed(error.localizedDescription)
         }
     }
+
+    private func verifySignature(_ bundleURL: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        process.arguments = ["--verify", "--deep", "--strict", "--verbose=2", bundleURL.path]
+
+        let errorPipe = Pipe()
+        process.standardError = errorPipe
+        try process.run()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0 else {
+            let data = errorPipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(data: data, encoding: .utf8) ?? "Unknown verification error"
+            throw GenerationError.signingFailed(output)
+        }
+    }
 }
 
-// NOTE: The unused signBundle(at:) and verifySignature(at:) helpers were removed here (TASK-6).
-// They were never called — generation signs via the ad-hoc signAdHoc(_:) path above — and
-// signBundle contained a hardcoded developer-specific entitlements path. Do not reintroduce them.
+// NOTE: The old signBundle(at:) helper was removed here (TASK-6). It contained a hardcoded
+// developer-specific entitlements path. Generation signs and verifies through the methods above.

@@ -36,27 +36,34 @@ jobs:
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
           echo "dmg=LocalServerWrapper-${TAG}.dmg" >> "$GITHUB_OUTPUT"
 
-      - name: Download Sparkle tools (sign_update)
-        run: |
-          SPARKLE_VERSION="2.9.4"
-          curl -sL "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-${SPARKLE_VERSION}.tar.xz" -o sparkle.tar.xz
-          mkdir -p sparkle-tools
-          tar -xf sparkle.tar.xz -C sparkle-tools
-          echo "SPARKLE_BIN_DIR=$(pwd)/sparkle-tools/bin" >> "$GITHUB_ENV"
-
-      - name: Build ServerAppBundle (runtime framework + thin launcher)
+      - name: Build ServerAppBundle (runtime framework + self-contained launcher)
         working-directory: ServerAppBundle
         run: |
           xcodebuild -scheme ServerAppBundle -configuration Release \
             -derivedDataPath build clean build $SIGN_FLAGS
+
+          APP="build/Build/Products/Release/ServerAppBundle.app"
+          test -d "$APP/Contents/Frameworks/ServerRuntime.framework"
+          if otool -l "$APP/Contents/MacOS/ServerAppBundle" | grep '/Users/' >/dev/null; then
+            echo "ServerAppBundle contains a user-specific runtime search path" >&2
+            exit 1
+          fi
+          codesign --verify --deep --strict --verbose=2 "$APP"
 
       - name: Build LocalServerWrapper (manager)
         working-directory: LocalServerWrapper
         run: |
           xcodebuild -scheme LocalServerWrapper -configuration Release \
             -derivedDataPath build clean build $SIGN_FLAGS \
+            -disableAutomaticPackageResolution \
             MARKETING_VERSION="${{ steps.vars.outputs.version }}" \
             CURRENT_PROJECT_VERSION="${{ github.run_number }}"
+
+      - name: Locate checksum-verified Sparkle tools
+        run: |
+          SPARKLE_BIN_DIR="$(pwd)/LocalServerWrapper/build/SourcePackages/artifacts/sparkle/Sparkle/bin"
+          test -x "$SPARKLE_BIN_DIR/sign_update"
+          echo "SPARKLE_BIN_DIR=$SPARKLE_BIN_DIR" >> "$GITHUB_ENV"
 
       - name: Inject Sparkle feed keys, embed runtime, re-sign
         run: |

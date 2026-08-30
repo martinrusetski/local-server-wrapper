@@ -13,8 +13,8 @@ private let logger = OSLog(subsystem: "com.localserverwrapper.configmanager", ca
 /// Why this is needed: on the dev machine nothing is quarantined (everything is built locally), but
 /// when a user *downloads* the manager app, macOS tags it — and the resources embedded inside it —
 /// with `com.apple.quarantine`. `FileManager` copies preserve extended attributes, so that flag rides
-/// along into `~/Library/Frameworks/ServerRuntime.framework` and into every generated launcher
-/// bundle (which is copied from the embedded template). A generated bundle that then loads a
+/// along into the legacy compatibility runtime and into each generated launcher bundle
+/// (which is copied from the embedded template). A generated bundle that then loads a
 /// quarantined framework can trip Gatekeeper/dyld on the user's machine even though it launches fine
 /// on the dev machine. Clearing the attribute after each copy restores that dev/user parity.
 ///

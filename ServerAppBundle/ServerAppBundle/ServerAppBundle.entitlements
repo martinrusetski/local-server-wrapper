@@ -2,6 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!--
+		Generated apps are ad-hoc signed, so neither the launcher nor its embedded runtime has a
+		Team ID. Hardened library validation would reject the bundle's own framework. Keep the
+		hardened runtime and bundle-relative rpath, but allow this signed embedded dependency.
+	-->
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
 	<key>com.apple.security.app-sandbox</key>
 	<false/>
 	<key>com.apple.security.network.client</key>
