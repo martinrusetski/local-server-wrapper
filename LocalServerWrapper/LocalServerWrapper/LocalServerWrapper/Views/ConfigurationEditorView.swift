@@ -9,7 +9,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import AppKit
 
-/// View for creating and editing server configurations
+/// View for creating and editing server app setups.
 struct ConfigurationEditorView: View {
     // MARK: - Environment
 
@@ -23,8 +23,9 @@ struct ConfigurationEditorView: View {
     /// The configuration being edited (nil for new configuration)
     let editingConfiguration: ServerConfiguration?
 
-    /// Callback when configuration is saved
-    let onSave: () -> Void
+    /// Callback when configuration is saved. The configuration id lets the library refresh the
+    /// matching exported bundle without coupling this editor to generation work.
+    let onSave: (UUID) -> Void
 
     // MARK: - State
 
@@ -64,7 +65,7 @@ struct ConfigurationEditorView: View {
     init(
         configurationManager: ConfigurationManagerProtocol,
         editingConfiguration: ServerConfiguration? = nil,
-        onSave: @escaping () -> Void
+        onSave: @escaping (UUID) -> Void
     ) {
         self.configurationManager = configurationManager
         self.editingConfiguration = editingConfiguration
@@ -100,74 +101,20 @@ struct ConfigurationEditorView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                // Identity: icon well + name
-                Section {
-                    HStack(alignment: .center, spacing: 14) {
-                        iconWell
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            TextField("Name", text: $name, prompt: Text("My Dev Server"))
-                                .textFieldStyle(.roundedBorder)
-                                .onChange(of: name) { _ in
-                                    validateName()
-                                }
-                                .accessibilityLabel("Configuration Name")
-                                .accessibilityHint("Enter a unique name for this server configuration")
-                                .accessibilityValue(name.isEmpty ? "Empty" : name)
-
-                            if let error = nameError {
-                                Text(error)
-                                    .font(.caption)
-                                    .foregroundStyle(.red)
-                            } else if let error = iconError {
-                                Text(error)
-                                    .font(.caption)
-                                    .foregroundStyle(.red)
-                            }
-                        }
-                    }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    identitySection
+                    Divider()
+                    launchSection
+                    Divider()
+                    serverSection
+                    Divider()
+                    advancedSection
                 }
-
-                // Launch
-                Section {
-                    launchCommandFields
-                } header: {
-                    Text("Launch")
-                } footer: {
-                    Text("The command that starts your server, run through the shell. Type anything you'd run in Terminal — \u{201C}npm run dev\u{201D}, a multi-line script, or a path to a start script.")
-                }
-
-                // Server URL
-                Section {
-                    fixedURLField
-                    probeRow
-                } header: {
-                    Text("Server")
-                } footer: {
-                    Text("Leave empty to detect the URL and port automatically — even when the server picks a free port on its own. Enter a URL to load it exactly as written. Use \u{201C}Test launch\u{201D} to confirm it now.")
-                }
-
-                // Advanced options (collapsed by default)
-                Section {
-                    DisclosureGroup(isExpanded: $showAdvanced) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Toggle("Run without a terminal", isOn: $runWithoutTerminal)
-                                .help("By default the server runs as if launched in Terminal, so scripts that only start when they detect an interactive terminal work. Turn this on only if a server misbehaves that way.")
-                                .accessibilityLabel("Run without a terminal")
-
-                            Text("Leave off for most servers. Turn on only if a server behaves worse when run as if in a terminal.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(.top, 6)
-                    } label: {
-                        Text("Advanced options")
-                    }
-                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
             }
-            .formStyle(.grouped)
-            .navigationTitle(editingConfiguration == nil ? "New Configuration" : "Edit Configuration")
+            .navigationTitle(editingConfiguration == nil ? "New App" : "Edit App")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -179,13 +126,13 @@ struct ConfigurationEditorView: View {
                 }
 
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
+                    Button(editingConfiguration == nil ? "Save App" : "Save Changes") {
                         saveConfiguration()
                     }
                     .keyboardShortcut(.return, modifiers: .command)
                     .disabled(!isValid)
-                    .accessibilityLabel("Save Configuration")
-                    .accessibilityHint(isValid ? "Saves the configuration" : "Cannot save: form has validation errors")
+                    .accessibilityLabel(editingConfiguration == nil ? "Save App" : "Save Changes")
+                    .accessibilityHint(isValid ? "Saves the app setup" : "Cannot save: form has validation errors")
                 }
             }
             .fileImporter(
@@ -205,29 +152,114 @@ struct ConfigurationEditorView: View {
                 }
             }
         }
-        .frame(minWidth: 600, minHeight: 500)
+        .frame(width: 580, height: showAdvanced ? 500 : 460)
+        .animation(.easeInOut(duration: 0.18), value: showAdvanced)
         .onDisappear { probe.cancel() }
+    }
+
+    // MARK: - Compact Editor Sections
+
+    private var identitySection: some View {
+        HStack(alignment: .center, spacing: 12) {
+            iconWell
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("App name")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                TextField("Name", text: $name, prompt: Text("My Dev Server"))
+                    .textFieldStyle(.roundedBorder)
+                    .onChange(of: name) { _ in
+                        validateName()
+                    }
+                    .accessibilityLabel("App Name")
+                    .accessibilityHint("Enter a unique name for this server app")
+                    .accessibilityValue(name.isEmpty ? "Empty" : name)
+
+                if let error = nameError {
+                    validationMessage(error)
+                } else if let error = iconError {
+                    validationMessage(error)
+                }
+            }
+        }
+    }
+
+    private var launchSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Launch")
+                    .font(.headline)
+
+                Spacer()
+
+                Button("Choose script…") {
+                    chooseScriptFile()
+                }
+                .buttonStyle(.bordered)
+                .help("Pick a shell script. Its quoted path replaces the command below and its folder becomes \u{201C}Run in folder\u{201D}.")
+            }
+
+            launchCommandFields
+
+            Text("Runs through the shell. Enter one command or a multi-line script.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var serverSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Server")
+                .font(.headline)
+
+            HStack(alignment: .top, spacing: 8) {
+                fixedURLField
+                probeActionButton
+            }
+
+            probeStatusView
+
+            Text("Leave blank to detect the URL and port automatically.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var advancedSection: some View {
+        DisclosureGroup(isExpanded: $showAdvanced) {
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle("Run without a terminal", isOn: $runWithoutTerminal)
+                    .help("By default the server runs as if launched in Terminal, so scripts that only start when they detect an interactive terminal work. Turn this on only if a server misbehaves that way.")
+                    .accessibilityLabel("Run without a terminal")
+
+                Text("Leave off unless the server behaves incorrectly when attached to a terminal.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.top, 6)
+        } label: {
+            Text("Advanced options")
+                .font(.headline)
+        }
+    }
+
+    private func validationMessage(_ message: String) -> some View {
+        Text(message)
+            .font(.caption)
+            .foregroundStyle(.red)
     }
 
     // MARK: - Launch Subviews
 
     @ViewBuilder
     private var launchCommandFields: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Button("Choose script…") {
-                    chooseScriptFile()
-                }
-                .buttonStyle(.bordered)
-                .help("Pick a shell script. Its quoted path replaces the command below and its folder becomes \u{201C}Run in folder\u{201D}.")
-
-                Spacer()
-            }
-
+        VStack(alignment: .leading, spacing: 8) {
             VStack(alignment: .leading, spacing: 4) {
                 TextEditor(text: $commandText)
                     .font(.system(.body, design: .monospaced))
-                    .frame(minHeight: 96)
+                    .frame(height: 68)
                     .overlay(
                         RoundedRectangle(cornerRadius: 4)
                             .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
@@ -297,23 +329,11 @@ struct ConfigurationEditorView: View {
         }
     }
 
-    /// Status line plus a "Test launch" button that runs the server once and reports the URL it serves.
-    @ViewBuilder
-    private var probeRow: some View {
-        HStack(spacing: 10) {
-            probeStatusView
-            Spacer()
-            probeActionButton
-        }
-    }
-
     @ViewBuilder
     private var probeStatusView: some View {
         switch probe.phase {
         case .idle:
-            Text("Run it once to confirm the URL.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            EmptyView()
         case .launching:
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
@@ -422,8 +442,8 @@ struct ConfigurationEditorView: View {
                         }
                 }
             }
-            .frame(width: 56, height: 56)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .frame(width: 48, height: 48)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)
         .overlay(alignment: .bottomTrailing) {
@@ -473,7 +493,7 @@ struct ConfigurationEditorView: View {
         if editingConfiguration == nil || editingConfiguration?.name != trimmedName {
             let existingConfigs = configurationManager.listConfigurations()
             if existingConfigs.contains(where: { $0.name == trimmedName }) {
-                nameError = "A configuration with this name already exists"
+                nameError = "An app with this name already exists"
                 return
             }
         }
@@ -676,10 +696,10 @@ struct ConfigurationEditorView: View {
                 try configurationManager.createConfiguration(config)
             }
 
-            onSave()
+            onSave(configId)
             dismiss()
         } catch {
-            errorMessage = "Failed to save configuration: \(error.localizedDescription)"
+            errorMessage = "Failed to save app: \(error.localizedDescription)"
             showingError = true
         }
     }
@@ -713,15 +733,15 @@ struct ConfigurationEditorView: View {
 
 // MARK: - Preview
 
-#Preview("New Configuration") {
+#Preview("New App") {
     ConfigurationEditorView(
         configurationManager: ConfigurationManager(),
         editingConfiguration: nil,
-        onSave: {}
+        onSave: { _ in }
     )
 }
 
-#Preview("Edit Configuration") {
+#Preview("Edit App") {
     let config = ServerConfiguration(
         name: "My Dev Server",
         command: "npm",
@@ -734,6 +754,6 @@ struct ConfigurationEditorView: View {
     return ConfigurationEditorView(
         configurationManager: ConfigurationManager(),
         editingConfiguration: config,
-        onSave: {}
+        onSave: { _ in }
     )
 }

@@ -17,6 +17,14 @@ import os.log
 /// Logger for view model operations
 private let logger = OSLog(subsystem: "com.localserverwrapper.configmanager", category: "viewmodel")
 
+/// Visible per-app state for generation and export work in the one-pane library.
+enum AppBundleOperationState: Equatable {
+    case idle
+    case generating(progress: Double, status: String)
+    case succeeded(URL)
+    case failed(String)
+}
+
 /// View model for the configuration list view
 @MainActor
 class ConfigurationListViewModel: ObservableObject {
@@ -28,23 +36,14 @@ class ConfigurationListViewModel: ObservableObject {
     /// Error message to display
     @Published var errorMessage: String?
     
-    /// Success message to display
-    @Published var successMessage: String?
-    
     /// Whether to show the error alert
     @Published var showingError: Bool = false
-    
-    /// Whether to show the success alert
-    @Published var showingSuccess: Bool = false
-    
-    /// Whether bundle generation is in progress
-    @Published var isGenerating: Bool = false
-    
-    /// Progress of bundle generation (0.0 to 1.0)
-    @Published var generationProgress: Double = 0.0
-    
-    /// Status message for bundle generation
-    @Published var generationStatus: String = ""
+
+    /// Inline generation state keyed by the app setup being operated on.
+    @Published private(set) var operationStates: [UUID: AppBundleOperationState] = [:]
+
+    /// Last exported bundle paths that still exist on disk.
+    @Published private(set) var exportedBundleURLs: [UUID: URL] = [:]
     
     // MARK: - Properties
     
@@ -54,8 +53,9 @@ class ConfigurationListViewModel: ObservableObject {
     /// The app bundle generator
     private let bundleGenerator: AppBundleGeneratorProtocol
     
-    /// Task for bundle generation (for cancellation support)
-    private var generationTask: Task<Void, Never>?
+    /// Active work keyed by configuration so progress and cancellation stay attached to one row.
+    private var operationTasks: [UUID: Task<Void, Never>] = [:]
+    private var operationTokens: [UUID: UUID] = [:]
     
     // MARK: - Initialization
     
@@ -77,6 +77,18 @@ class ConfigurationListViewModel: ObservableObject {
     /// Refresh the list of configurations
     func refresh() {
         configurations = configurationManager.listConfigurations()
+        refreshExportedBundleURLs()
+    }
+
+    /// Refresh after an editor save, then update the existing user-exported app in place. New app
+    /// setups have no exported path yet, so saving them only refreshes the library.
+    func configurationDidSave(_ configurationID: UUID) {
+        refresh()
+
+        guard let configuration = configurations.first(where: { $0.id == configurationID }),
+              let destinationURL = validExportedBundleURL(for: configurationID) else { return }
+
+        regenerateExportedApp(configuration, at: destinationURL)
     }
     
     /// Delete a configuration
@@ -87,9 +99,9 @@ class ConfigurationListViewModel: ObservableObject {
             try configurationManager.deleteConfiguration(id: configuration.id)
             IconStorage.removeIcon(for: configuration.id)
             removeCanonicalBundle(for: configuration.id)
+            removeExportedBundleReference(for: configuration.id)
+            operationStates.removeValue(forKey: configuration.id)
             refresh()
-            successMessage = "Configuration '\(configuration.name)' deleted successfully"
-            showingSuccess = true
             os_log(.info, log: logger, "Successfully deleted configuration: %{public}@", configuration.name)
         } catch {
             os_log(.error, log: logger, "Failed to delete configuration '%{public}@': %{public}@", configuration.name, error.localizedDescription)
@@ -112,8 +124,7 @@ class ConfigurationListViewModel: ObservableObject {
         }
     }
     
-    /// Export a standalone copy of the configuration's app bundle to a user-chosen location
-    /// (default: /Applications).
+    /// Generate and export a standalone copy of the app bundle to a user-chosen location.
     ///
     /// This is a *copy* of the same canonical bundle the Run button launches — not a second,
     /// independent generation. Because the copy keeps the original's ad-hoc signature (identical
@@ -125,8 +136,9 @@ class ConfigurationListViewModel: ObservableObject {
         os_log(.info, log: logger, "User initiating standalone app export for: %{public}@", configuration.name)
 
         let savePanel = NSSavePanel()
-        savePanel.title = "Use as Standalone App"
-        savePanel.message = "Choose where to save the standalone app"
+        savePanel.title = "Generate App"
+        savePanel.message = "Choose where to save the generated app"
+        savePanel.prompt = "Generate"
         savePanel.nameFieldStringValue = "\(configuration.name).app"
         savePanel.directoryURL = URL(fileURLWithPath: "/Applications")
         savePanel.canCreateDirectories = true
@@ -143,50 +155,93 @@ class ConfigurationListViewModel: ObservableObject {
 
             os_log(.debug, log: logger, "User selected export location: %{public}@", destinationURL.path)
 
-            self.generationTask = Task {
-                defer { self.generationTask = nil }
+            self.startOperation(for: configuration.id) {
+                self.operationStates[configuration.id] = .generating(
+                    progress: 0,
+                    status: "Generating…"
+                )
                 do {
                     let canonicalURL = try await self.ensureCanonicalBundle(for: configuration)
                     try self.exportCopy(of: canonicalURL, to: destinationURL)
+                    self.rememberExportedBundle(destinationURL, for: configuration.id)
+                    self.operationStates[configuration.id] = .succeeded(destinationURL)
                     self.sendSuccessNotification(configurationName: configuration.name, bundleURL: destinationURL)
                     os_log(.info, log: logger, "Exported standalone app to: %{public}@", destinationURL.path)
                 } catch is CancellationError {
+                    self.operationStates[configuration.id] = .idle
                     os_log(.info, log: logger, "Standalone app export was cancelled")
                 } catch {
-                    self.presentBundleError(error)
+                    self.operationStates[configuration.id] = .failed(self.formatBundleError(error))
+                    os_log(.error, log: logger, "Bundle export failed: %{public}@", error.localizedDescription)
                 }
             }
         }
     }
-    
-    /// Cancel the current bundle generation
-    func cancelGeneration() {
-        os_log(.info, log: logger, "User cancelling bundle generation")
-        generationTask?.cancel()
-        generationTask = nil
-        isGenerating = false
-        generationProgress = 0.0
-        generationStatus = "Cancelled"
-    }
-    
-    /// Run a configuration by ensuring its canonical app bundle is current and launching it.
-    /// The bundle is generated lazily on first run (or after a change that affects generation) and
-    /// reused otherwise; "Use as standalone app" exports a copy of this same bundle.
-    /// - Parameter configuration: The configuration to run
-    func run(configuration: ServerConfiguration) {
-        os_log(.info, log: logger, "User initiating run for: %{public}@", configuration.name)
 
-        generationTask = Task {
-            defer { generationTask = nil }
+    func operationState(for configurationID: UUID) -> AppBundleOperationState {
+        operationStates[configurationID] ?? .idle
+    }
+
+    func exportedBundleURL(for configurationID: UUID) -> URL? {
+        exportedBundleURLs[configurationID]
+    }
+
+    /// Cancel generation for one app without disturbing another row's state.
+    func cancelGeneration(for configurationID: UUID) {
+        os_log(.info, log: logger, "User cancelling bundle generation")
+        operationTasks[configurationID]?.cancel()
+        operationTasks[configurationID] = nil
+        operationTokens[configurationID] = nil
+        operationStates[configurationID] = .idle
+    }
+
+    /// Secondary validation action. It launches the internal canonical bundle, not an exported copy.
+    func testLaunch(configuration: ServerConfiguration) {
+        os_log(.info, log: logger, "User initiating test launch for: %{public}@", configuration.name)
+
+        startOperation(for: configuration.id) {
+            self.operationStates[configuration.id] = .generating(
+                progress: 0,
+                status: "Preparing test…"
+            )
             do {
-                let bundleURL = try await ensureCanonicalBundle(for: configuration)
-                launchBundle(at: bundleURL)
+                let bundleURL = try await self.ensureCanonicalBundle(for: configuration)
+                self.operationStates[configuration.id] = .idle
+                self.launchBundle(at: bundleURL)
             } catch is CancellationError {
-                os_log(.info, log: logger, "Run was cancelled during bundle generation")
+                self.operationStates[configuration.id] = .idle
+                os_log(.info, log: logger, "Test launch was cancelled during bundle generation")
             } catch {
-                presentBundleError(error)
+                self.operationStates[configuration.id] = .failed(self.formatBundleError(error))
+                os_log(.error, log: logger, "Test launch failed: %{public}@", error.localizedDescription)
             }
         }
+    }
+
+    /// Open the last user-exported bundle. This never generates an internal substitute.
+    func openExportedApp(for configuration: ServerConfiguration) {
+        guard let bundleURL = validExportedBundleURL(for: configuration.id) else {
+            presentMissingExportedBundle(for: configuration)
+            return
+        }
+        launchBundle(at: bundleURL)
+    }
+
+    func revealExportedApp(for configuration: ServerConfiguration) {
+        guard let bundleURL = validExportedBundleURL(for: configuration.id) else {
+            presentMissingExportedBundle(for: configuration)
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([bundleURL])
+    }
+
+    /// Regenerate the last user-exported copy at the same path, without asking for a destination.
+    func regenerateExportedApp(for configuration: ServerConfiguration) {
+        guard let destinationURL = validExportedBundleURL(for: configuration.id) else {
+            presentMissingExportedBundle(for: configuration)
+            return
+        }
+        regenerateExportedApp(configuration, at: destinationURL)
     }
     
     // MARK: - Private Methods
@@ -204,6 +259,50 @@ class ConfigurationListViewModel: ObservableObject {
     private func hashKey(for configId: UUID) -> String {
         "generated_config_hash_\(configId.uuidString)"
     }
+
+    private func exportedBundlePathKey(for configId: UUID) -> String {
+        "exported_bundle_path_\(configId.uuidString)"
+    }
+
+    private func startOperation(
+        for configurationID: UUID,
+        operation: @escaping @MainActor () async -> Void
+    ) {
+        operationTasks[configurationID]?.cancel()
+        let token = UUID()
+        operationTokens[configurationID] = token
+        let task = Task { [weak self] in
+            await operation()
+            guard self?.operationTokens[configurationID] == token else { return }
+            self?.operationTasks[configurationID] = nil
+            self?.operationTokens[configurationID] = nil
+        }
+        operationTasks[configurationID] = task
+    }
+
+    private func regenerateExportedApp(_ configuration: ServerConfiguration, at destinationURL: URL) {
+        os_log(.info, log: logger, "Regenerating exported app after configuration save: %{public}@", configuration.name)
+
+        startOperation(for: configuration.id) {
+            self.operationStates[configuration.id] = .generating(
+                progress: 0,
+                status: "Updating app…"
+            )
+            do {
+                let canonicalURL = try await self.ensureCanonicalBundle(for: configuration)
+                try self.exportCopy(of: canonicalURL, to: destinationURL)
+                self.rememberExportedBundle(destinationURL, for: configuration.id)
+                self.operationStates[configuration.id] = .succeeded(destinationURL)
+                os_log(.info, log: logger, "Regenerated exported app at: %{public}@", destinationURL.path)
+            } catch is CancellationError {
+                self.operationStates[configuration.id] = .idle
+                os_log(.info, log: logger, "Exported app regeneration was cancelled")
+            } catch {
+                self.operationStates[configuration.id] = .failed(self.formatBundleError(error))
+                os_log(.error, log: logger, "Exported app regeneration failed: %{public}@", error.localizedDescription)
+            }
+        }
+    }
     
     /// Sanitize a name for use as a bundle filename
     private func sanitizeForBundleName(_ name: String) -> String {
@@ -220,7 +319,7 @@ class ConfigurationListViewModel: ObservableObject {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
             guard granted else { return }
             let content = UNMutableNotificationContent()
-            content.title = "Standalone App Ready"
+            content.title = "App Ready"
             content.body = "\"\(configurationName)\" was saved. Click to reveal in Finder."
             content.sound = .default
             content.userInfo = [AppDelegate.bundlePathUserInfoKey: bundleURL.path]
@@ -241,8 +340,7 @@ class ConfigurationListViewModel: ObservableObject {
     /// Ensure the configuration's canonical app bundle exists and is current in the bundles
     /// directory, then return its URL. Regenerates only when the configuration changed in a way that
     /// affects generation (hash mismatch) or the bundle is missing; otherwise the existing bundle is
-    /// reused. This is the single source of truth shared by Run (which launches it) and
-    /// "Use as standalone app" (which copies it).
+    /// reused. This is the single source of truth shared by Test Launch and Generate App.
     /// - Parameter configuration: The configuration whose bundle is needed
     /// - Returns: The URL of the up-to-date canonical bundle
     /// - Throws: GenerationError or CancellationError if generation fails or is cancelled
@@ -258,19 +356,19 @@ class ConfigurationListViewModel: ObservableObject {
 
         try ensureBundlesDirectory()
 
-        isGenerating = true
-        generationProgress = 0.0
-        generationStatus = "Starting..."
-        defer { isGenerating = false }
-
         os_log(.info, log: logger, "Generating canonical bundle for: %{public}@", configuration.name)
         let generatedURL = try await bundleGenerator.generate(
             configuration: configuration,
             outputPath: Self.bundlesDirectory,
             progressHandler: { [weak self] progress, status in
                 Task { @MainActor in
-                    self?.generationProgress = progress
-                    self?.generationStatus = status
+                    guard let self,
+                          let state = self.operationStates[configuration.id],
+                          case .generating = state else { return }
+                    self.operationStates[configuration.id] = .generating(
+                        progress: progress,
+                        status: status
+                    )
                 }
             }
         )
@@ -300,13 +398,28 @@ class ConfigurationListViewModel: ObservableObject {
     }
 
     /// Copy the canonical bundle to a user-chosen destination, replacing any existing item there.
-    /// `copyItem` preserves the ad-hoc signature and (already-cleared) quarantine state, so the copy
-    /// is an exact, same-identity duplicate of the original.
+    /// The replacement is staged beside the destination first, so a failed copy leaves the user's
+    /// currently generated app intact. `copyItem` preserves the ad-hoc signature and cleared
+    /// quarantine state, so the copy remains an exact, same-identity duplicate of the original.
     private func exportCopy(of source: URL, to destination: URL) throws {
-        if FileManager.default.fileExists(atPath: destination.path) {
-            try FileManager.default.removeItem(at: destination)
+        let fileManager = FileManager.default
+        let stagedURL = destination
+            .deletingLastPathComponent()
+            .appendingPathComponent(".\(destination.lastPathComponent).\(UUID().uuidString).staged")
+
+        defer {
+            if fileManager.fileExists(atPath: stagedURL.path) {
+                try? fileManager.removeItem(at: stagedURL)
+            }
         }
-        try FileManager.default.copyItem(at: source, to: destination)
+
+        try fileManager.copyItem(at: source, to: stagedURL)
+
+        if fileManager.fileExists(atPath: destination.path) {
+            _ = try fileManager.replaceItemAt(destination, withItemAt: stagedURL)
+        } else {
+            try fileManager.moveItem(at: stagedURL, to: destination)
+        }
     }
 
     /// Remove a configuration's canonical bundle and its bookkeeping keys (called on delete).
@@ -320,15 +433,48 @@ class ConfigurationListViewModel: ObservableObject {
         UserDefaults.standard.removeObject(forKey: hashKey(for: configId))
     }
 
-    /// Present a bundle generation/export error to the user.
-    private func presentBundleError(_ error: Error) {
-        if let generationError = error as? GenerationError {
-            errorMessage = formatGenerationError(generationError)
-        } else {
-            errorMessage = "Failed to prepare app bundle: \(error.localizedDescription)"
+    private func rememberExportedBundle(_ url: URL, for configurationID: UUID) {
+        UserDefaults.standard.set(url.path, forKey: exportedBundlePathKey(for: configurationID))
+        exportedBundleURLs[configurationID] = url
+    }
+
+    private func removeExportedBundleReference(for configurationID: UUID) {
+        exportedBundleURLs.removeValue(forKey: configurationID)
+        UserDefaults.standard.removeObject(forKey: exportedBundlePathKey(for: configurationID))
+    }
+
+    private func refreshExportedBundleURLs() {
+        let validIDs = Set(configurations.map(\.id))
+        exportedBundleURLs = validIDs.reduce(into: [:]) { result, configurationID in
+            let key = exportedBundlePathKey(for: configurationID)
+            guard let path = UserDefaults.standard.string(forKey: key),
+                  FileManager.default.fileExists(atPath: path) else {
+                UserDefaults.standard.removeObject(forKey: key)
+                return
+            }
+            result[configurationID] = URL(fileURLWithPath: path)
         }
+    }
+
+    private func validExportedBundleURL(for configurationID: UUID) -> URL? {
+        guard let url = exportedBundleURLs[configurationID],
+              FileManager.default.fileExists(atPath: url.path) else {
+            removeExportedBundleReference(for: configurationID)
+            return nil
+        }
+        return url
+    }
+
+    private func presentMissingExportedBundle(for configuration: ServerConfiguration) {
+        errorMessage = "The generated copy of ‘\(configuration.name)’ could not be found. Generate the app again to choose a new location."
         showingError = true
-        os_log(.error, log: logger, "Bundle operation failed: %{public}@", error.localizedDescription)
+    }
+
+    private func formatBundleError(_ error: Error) -> String {
+        if let generationError = error as? GenerationError {
+            return formatGenerationError(generationError)
+        }
+        return "Failed to prepare app bundle: \(error.localizedDescription)"
     }
     
     /// Format a generation error into a user-friendly message
@@ -353,4 +499,3 @@ class ConfigurationListViewModel: ObservableObject {
         }
     }
 }
-

@@ -18,9 +18,11 @@ struct LocalServerWrapperApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(configurationManager: configurationManager)
-                .frame(minWidth: 800, minHeight: 600)
+                .frame(minWidth: 560, minHeight: 340)
                 .environmentObject(configurationManager)
         }
+        .defaultSize(width: 640, height: 420)
+        .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(replacing: .newItem) { }
             // Adds "Check for Updates…" to the app menu, just below "About".
@@ -34,6 +36,7 @@ struct LocalServerWrapperApp: App {
 class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     /// userInfo key carrying the generated bundle's path on success notifications
     static let bundlePathUserInfoKey = "bundlePath"
+    private let compactWindowMigrationKey = "didApplyCompactMainWindowSizeV1"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         UNUserNotificationCenter.current().delegate = self
@@ -47,6 +50,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         NSApp.activate(ignoringOtherApps: true)
 
         if let window = NSApp.windows.first {
+            window.contentMinSize = NSSize(width: 560, height: 340)
+            if !UserDefaults.standard.bool(forKey: compactWindowMigrationKey) {
+                window.setContentSize(NSSize(width: 640, height: 420))
+                UserDefaults.standard.set(true, forKey: compactWindowMigrationKey)
+            }
             window.makeKeyAndOrderFront(nil)
         }
     }

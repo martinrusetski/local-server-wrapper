@@ -8,18 +8,18 @@
 import SwiftUI
 import AppKit
 
-/// Identifies which sheet to present: new or edit
+/// Identifies which sheet to present: new or edit.
 enum ConfigurationSheet: Identifiable {
     case new
     case edit(ServerConfiguration)
-    
+
     var id: String {
         switch self {
         case .new: return "new"
         case .edit(let config): return config.id.uuidString
         }
     }
-    
+
     var editingConfig: ServerConfiguration? {
         switch self {
         case .new: return nil
@@ -28,50 +28,48 @@ enum ConfigurationSheet: Identifiable {
     }
 }
 
-/// Main view displaying the list of server configurations
+/// One-pane library of configured server apps.
 struct ConfigurationListView: View {
-    // MARK: - Properties
-    
-    /// The configuration manager instance
     @StateObject private var viewModel: ConfigurationListViewModel
-    
-    /// Search text for filtering configurations
     @State private var searchText = ""
-    
-    /// The active configuration sheet (nil when no sheet is presented)
     @State private var activeSheet: ConfigurationSheet?
-    
-    /// Whether the delete confirmation alert is shown
     @State private var showingDeleteAlert = false
-    
-    /// The configuration to delete
     @State private var configurationToDelete: ServerConfiguration?
-    
-    /// The currently selected configuration
-    @State private var selectedConfiguration: ServerConfiguration?
-    
-    // MARK: - Initialization
-    
+
     init(configurationManager: ConfigurationManager) {
-        _viewModel = StateObject(wrappedValue: ConfigurationListViewModel(configurationManager: configurationManager))
+        _viewModel = StateObject(
+            wrappedValue: ConfigurationListViewModel(configurationManager: configurationManager)
+        )
     }
-    
-    // MARK: - Body
-    
+
     var body: some View {
-        NavigationSplitView {
-            sidebarContent
-        } detail: {
-            detailContent
+        NavigationStack {
+            Group {
+                if viewModel.configurations.isEmpty {
+                    EmptyStateView {
+                        activeSheet = .new
+                    }
+                } else if filteredConfigurations.isEmpty {
+                    SearchEmptyState(searchText: searchText)
+                } else {
+                    appList
+                }
+            }
+            .navigationTitle("Server Apps")
+            .searchable(text: $searchText, prompt: "Search apps")
             .toolbar {
-                if let config = selectedConfiguration {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            activeSheet = .edit(config)
-                        } label: {
-                            Label("Edit", systemImage: "pencil")
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        activeSheet = .new
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "plus")
+                            Text("New App…")
                         }
                     }
+                    .buttonStyle(.bordered)
+                    .keyboardShortcut("n", modifiers: .command)
+                    .help("Configure a new server app")
                 }
             }
         }
@@ -79,15 +77,10 @@ struct ConfigurationListView: View {
             ConfigurationEditorView(
                 configurationManager: viewModel.configurationManager,
                 editingConfiguration: sheet.editingConfig,
-                onSave: {
-                    viewModel.refresh()
-                    if case .edit(let config) = sheet {
-                        selectedConfiguration = viewModel.configurations.first(where: { $0.id == config.id })
-                    }
-                }
+                onSave: viewModel.configurationDidSave
             )
         }
-        .alert("Delete Configuration", isPresented: $showingDeleteAlert, presenting: configurationToDelete) { config in
+        .alert("Delete App Setup?", isPresented: $showingDeleteAlert, presenting: configurationToDelete) { config in
             Button("Cancel", role: .cancel) {
                 configurationToDelete = nil
             }
@@ -96,7 +89,7 @@ struct ConfigurationListView: View {
                 configurationToDelete = nil
             }
         } message: { config in
-            Text("Are you sure you want to delete '\(config.name)'? This action cannot be undone.")
+            Text("Delete the saved setup for ‘\(config.name)’? App copies you already generated will not be removed.")
         }
         .alert("Error", isPresented: $viewModel.showingError) {
             Button("OK") {
@@ -108,117 +101,93 @@ struct ConfigurationListView: View {
                 Text(message)
             }
         }
-        .alert("Success", isPresented: $viewModel.showingSuccess) {
-            Button("OK") {
-                viewModel.successMessage = nil
-                viewModel.showingSuccess = false
-            }
-        } message: {
-            if let message = viewModel.successMessage {
-                Text(message)
+    }
+
+    private var appList: some View {
+        List(filteredConfigurations) { config in
+            ConfigurationRowView(
+                configuration: config,
+                operationState: viewModel.operationState(for: config.id),
+                exportedBundleURL: viewModel.exportedBundleURL(for: config.id),
+                onEdit: { activeSheet = .edit(config) },
+                onGenerate: { viewModel.exportStandaloneApp(for: config) },
+                onRegenerate: { viewModel.regenerateExportedApp(for: config) },
+                onCancelGeneration: { viewModel.cancelGeneration(for: config.id) },
+                onTestLaunch: { viewModel.testLaunch(configuration: config) },
+                onOpenExportedApp: { viewModel.openExportedApp(for: config) },
+                onRevealExportedApp: { viewModel.revealExportedApp(for: config) },
+                onDelete: { requestDelete(config) }
+            )
+            .listRowInsets(EdgeInsets(top: 7, leading: 8, bottom: 7, trailing: 8))
+            .contextMenu {
+                rowMenu(for: config)
             }
         }
+        .listStyle(.plain)
+        .padding(.top, 6)
     }
-    
-    // MARK: - Sidebar Content
-    
-    private var sidebarContent: some View {
-        VStack(spacing: 0) {
-            List(filteredConfigurations, selection: $selectedConfiguration) { config in
-                ConfigurationRowView(configuration: config)
-                    .tag(config)
-                    .contextMenu {
-                        Button("Edit") {
-                            activeSheet = .edit(config)
-                        }
-                        
-                        Button("Run") {
-                            viewModel.run(configuration: config)
-                        }
-                        
-                        Button("Use as standalone app...") {
-                            viewModel.exportStandaloneApp(for: config)
-                        }
-                        
-                        Divider()
-                        
-                        Button("Delete", role: .destructive) {
-                            configurationToDelete = config
-                            showingDeleteAlert = true
-                        }
-                    }
+
+    @ViewBuilder
+    private func rowMenu(for config: ServerConfiguration) -> some View {
+        if viewModel.exportedBundleURL(for: config.id) == nil {
+            Button("Generate App…") {
+                viewModel.exportStandaloneApp(for: config)
             }
-            .searchable(text: $searchText, prompt: "Search configurations")
-            .navigationTitle("Server Configurations")
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        activeSheet = .new
-                    } label: {
-                        Label("New Configuration", systemImage: "plus")
-                    }
-                    .keyboardShortcut("n", modifiers: .command)
-                }
-            }
-        }
-    }
-    
-    // MARK: - Detail Content
-    
-    private var detailContent: some View {
-        Group {
-            if let config = selectedConfiguration {
-                ConfigurationDetailView(
-                    configuration: config,
-                    isGenerating: viewModel.isGenerating,
-                    onEdit: {
-                        activeSheet = .edit(config)
-                    },
-                    onGenerate: {
-                        viewModel.exportStandaloneApp(for: config)
-                    },
-                    onRun: {
-                        viewModel.run(configuration: config)
-                    },
-                    onDelete: {
-                        configurationToDelete = config
-                        showingDeleteAlert = true
-                    }
-                )
-            } else if viewModel.configurations.isEmpty {
-                EmptyStateView {
-                    activeSheet = .new
-                }
-            } else {
-                Text("Select a configuration to view details")
-                    .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
-    }
-    
-    // MARK: - Computed Properties
-    
-    /// Filtered configurations based on search text
-    private var filteredConfigurations: [ServerConfiguration] {
-        if searchText.isEmpty {
-            return viewModel.configurations
         } else {
-            return viewModel.configurations.filter { config in
-                config.name.localizedCaseInsensitiveContains(searchText) ||
-                config.command.localizedCaseInsensitiveContains(searchText)
+            Button("Show in Finder") {
+                viewModel.revealExportedApp(for: config)
             }
+
+            Button("Regenerate App") {
+                viewModel.regenerateExportedApp(for: config)
+            }
+        }
+
+        Divider()
+
+        Button("Edit…") {
+            activeSheet = .edit(config)
+        }
+
+        Button("Test Launch") {
+            viewModel.testLaunch(configuration: config)
+        }
+
+        if viewModel.exportedBundleURL(for: config.id) != nil {
+            Button("Open App") {
+                viewModel.openExportedApp(for: config)
+            }
+        }
+
+        Divider()
+
+        Button("Delete…", role: .destructive) {
+            requestDelete(config)
+        }
+    }
+
+    private func requestDelete(_ config: ServerConfiguration) {
+        configurationToDelete = config
+        showingDeleteAlert = true
+    }
+
+    private var filteredConfigurations: [ServerConfiguration] {
+        guard !searchText.isEmpty else { return viewModel.configurations }
+
+        return viewModel.configurations.filter { config in
+            config.name.localizedCaseInsensitiveContains(searchText)
+                || ConfigurationRowView.subtitle(for: config).localizedCaseInsensitiveContains(searchText)
         }
     }
 }
 
-// MARK: - Configuration Icon View
+// MARK: - App Icon
 
 /// Displays a configuration's custom icon, falling back to a tinted SF Symbol placeholder.
 struct ConfigIconView: View {
     let configuration: ServerConfiguration
-    var size: CGFloat = 28
-    var cornerRadius: CGFloat = 6
+    var size: CGFloat = 40
+    var cornerRadius: CGFloat = 9
 
     private var loadedImage: NSImage? {
         guard let path = configuration.customIconPath, !path.isEmpty,
@@ -236,335 +205,217 @@ struct ConfigIconView: View {
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             } else {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(Color.accentColor.opacity(0.15))
+                    .fill(Color.accentColor.opacity(0.14))
                     .frame(width: size, height: size)
                     .overlay {
                         Image(systemName: "server.rack")
-                            .font(.system(size: size * 0.5))
+                            .font(.system(size: size * 0.46, weight: .medium))
                             .foregroundStyle(.tint)
                     }
             }
         }
+        .accessibilityHidden(true)
     }
 }
 
-// MARK: - Configuration Row View
+// MARK: - App Row
 
-/// View for a single configuration row in the list
+/// A complete generator-first row for one saved server app.
 struct ConfigurationRowView: View {
     let configuration: ServerConfiguration
+    let operationState: AppBundleOperationState
+    let exportedBundleURL: URL?
+    let onEdit: () -> Void
+    let onGenerate: () -> Void
+    let onRegenerate: () -> Void
+    let onCancelGeneration: () -> Void
+    let onTestLaunch: () -> Void
+    let onOpenExportedApp: () -> Void
+    let onRevealExportedApp: () -> Void
+    let onDelete: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
-            ConfigIconView(configuration: configuration, size: 28, cornerRadius: 6)
+        HStack(spacing: 12) {
+            ConfigIconView(configuration: configuration)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(configuration.name)
                     .font(.headline)
                     .lineLimit(1)
 
-                Text(subtitle)
-                    .font(.caption)
+                Text(Self.subtitle(for: configuration))
+                    .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+
+                operationStatus
+                    .padding(.top, 2)
             }
+            .frame(minWidth: 120, maxWidth: .infinity, alignment: .leading)
+
+            primaryActionButton
+                .fixedSize()
+
+            Menu {
+                Button("Edit…", action: onEdit)
+                Button("Test Launch", action: onTestLaunch)
+
+                if exportedBundleURL != nil {
+                    Divider()
+                    Button("Open App", action: onOpenExportedApp)
+                    Button("Regenerate App", action: onRegenerate)
+                }
+
+                Divider()
+                Button("Delete…", role: .destructive, action: onDelete)
+            } label: {
+                Image(systemName: "ellipsis")
+                    .frame(width: 22, height: 22)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("More actions")
+            .accessibilityLabel("More actions for \(configuration.name)")
         }
-        .padding(.vertical, 2)
+        .frame(minHeight: 48)
+        .alignmentGuide(.listRowSeparatorLeading) { dimensions in
+            dimensions[.leading]
+        }
+        .alignmentGuide(.listRowSeparatorTrailing) { dimensions in
+            dimensions[.trailing]
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2, perform: onEdit)
+        .accessibilityElement(children: .contain)
     }
 
-    /// The most identifying secondary line: a fixed URL when one is pinned, then the command, then a
-    /// script hint. (In automatic mode the stored URL is only a fallback, so the command is more
-    /// identifying than a placeholder address.)
-    private var subtitle: String {
-        if configuration.urlDetectionMode == .fixed, let url = configuration.localhostURL, !url.isEmpty {
-            return url
+    @ViewBuilder
+    private var operationStatus: some View {
+        switch operationState {
+        case .idle:
+            EmptyView()
+
+        case .generating(_, let status):
+            HStack(spacing: 7) {
+                ProgressView()
+                    .controlSize(.small)
+                Text(status.isEmpty ? "Generating…" : status)
+                    .lineLimit(1)
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+        case .succeeded(let url):
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                Text("Ready in \(url.deletingLastPathComponent().lastPathComponent)")
+                    .lineLimit(1)
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+        case .failed(let message):
+            Label(message, systemImage: "exclamationmark.triangle.fill")
+                .font(.caption)
+                .foregroundStyle(.orange)
+                .lineLimit(2)
+                .help(message)
         }
+    }
+
+    @ViewBuilder
+    private var primaryActionButton: some View {
+        Group {
+            if exportedBundleURL != nil {
+                Button("Show in Finder", action: onRevealExportedApp)
+            } else {
+                switch operationState {
+                case .generating:
+                    Button("Cancel", action: onCancelGeneration)
+
+                case .failed:
+                    Button("Try Again", action: onGenerate)
+
+                default:
+                    Button("Generate App…", action: onGenerate)
+                }
+            }
+        }
+        .buttonStyle(.bordered)
+    }
+
+    static func subtitle(for configuration: ServerConfiguration) -> String {
         if !configuration.command.isEmpty {
             let args = configuration.arguments.joined(separator: " ")
             return args.isEmpty ? configuration.command : "\(configuration.command) \(args)"
         }
+
         if let firstLine = configuration.inlineScriptContent?
             .split(separator: "\n")
             .map({ $0.trimmingCharacters(in: .whitespaces) })
             .first(where: { !$0.isEmpty && !$0.hasPrefix("#") }) {
             return firstLine
         }
-        return "No command"
+
+        if configuration.urlDetectionMode == .fixed,
+           let url = configuration.localhostURL,
+           !url.isEmpty {
+            return url
+        }
+
+        return "No launch command"
     }
 }
 
-// MARK: - Empty State View
+// MARK: - Empty State
 
-/// View displayed when there are no configurations
 struct EmptyStateView: View {
-    let onCreateConfiguration: () -> Void
-    
+    let onCreateApp: () -> Void
+
     var body: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "tray")
-                .font(.system(size: 60))
-                .foregroundColor(.secondary)
-            
-            Text("No Configurations")
-                .font(.title2)
-                .fontWeight(.semibold)
-            
-            Text("Create your first server configuration to get started")
-                .font(.body)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-            
-            Button {
-                onCreateConfiguration()
-            } label: {
-                Label("New Configuration", systemImage: "plus")
-                    .font(.headline)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .accessibilityLabel("Create New Configuration")
-            .accessibilityHint("Opens the configuration editor to create your first server configuration")
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding()
-    }
-}
-
-// MARK: - Configuration Detail View
-
-/// View displaying details of a selected configuration
-struct ConfigurationDetailView: View {
-    let configuration: ServerConfiguration
-    var isGenerating: Bool = false
-    let onEdit: () -> Void
-    let onGenerate: () -> Void
-    let onRun: () -> Void
-    let onDelete: () -> Void
-    
-    var body: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    header
-                    launchScriptCard
-                    HStack(alignment: .top, spacing: 16) {
-                        networkCard
-                        detectionCard
-                    }
-                    metadataFooter
-                }
-                .padding(24)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            actionBar
-        }
-        .background(Color(nsColor: .controlBackgroundColor))
-    }
-
-    // MARK: - Header
-
-    private var header: some View {
-        HStack(spacing: 14) {
-            ConfigIconView(configuration: configuration, size: 52, cornerRadius: 12)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(configuration.name)
-                    .font(.title)
-                    .fontWeight(.bold)
-                Text(scriptSourceLabel)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    // MARK: - Cards
-
-    private var launchScriptCard: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 8) {
-                switch configuration.scriptSource {
-                case .command:
-                    DetailRow(label: "Executable", value: configuration.command)
-                    if !configuration.arguments.isEmpty {
-                        DetailRow(label: "Arguments", value: configuration.arguments.joined(separator: " "))
-                    }
-                case .file:
-                    DetailRow(label: "Script", value: configuration.command)
-                    if !configuration.arguments.isEmpty {
-                        DetailRow(label: "Arguments", value: configuration.arguments.joined(separator: " "))
-                    }
-                case .inline:
-                    if let content = configuration.inlineScriptContent, !content.isEmpty {
-                        Text(content)
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(5)
-                            .textSelection(.enabled)
-                    }
-                }
-
-                if let wd = configuration.workingDirectory, !wd.isEmpty {
-                    DetailRow(label: "Working Dir", value: wd)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(4)
-        } label: {
-            Label("Launch Script", systemImage: "terminal")
-        }
-    }
-
-    private var networkCard: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 4) {
-                switch configuration.urlDetectionMode {
-                case .automatic:
-                    // In automatic mode localhostURL is only a fallback, so showing it would
-                    // misrepresent the default as the real address. The actual URL is discovered
-                    // when the server runs.
-                    Label("Detected automatically when the server starts", systemImage: "wand.and.stars")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                case .fixed:
-                    if let url = configuration.localhostURL, !url.isEmpty {
-                        Text(url)
-                            .font(.callout)
-                            .textSelection(.enabled)
-                    } else {
-                        Text("Not configured")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(4)
-        } label: {
-            Label("Network", systemImage: "network")
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private var detectionCard: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 8) {
-                if let pattern = configuration.readySignalPattern, !pattern.isEmpty {
-                    DetailRow(label: "Ready Signal", value: pattern)
-                } else {
-                    Text("Not configured")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                if let pattern = configuration.portDetectionPattern, !pattern.isEmpty {
-                    DetailRow(label: "Port", value: pattern)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(4)
-        } label: {
-            Label("Detection", systemImage: "magnifyingglass")
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    // MARK: - Metadata Footer
-
-    private var metadataFooter: some View {
-        HStack {
-            Text("Created \(formatDate(configuration.createdAt))")
-                .font(.caption)
+        VStack(spacing: 16) {
+            Image(systemName: "macwindow.badge.plus")
+                .font(.system(size: 48))
                 .foregroundStyle(.secondary)
 
-            Spacer()
+            Text("Turn a Local Server into a Mac App")
+                .font(.title2.weight(.semibold))
 
-            Button {
-                let pasteboard = NSPasteboard.general
-                pasteboard.clearContents()
-                pasteboard.setString(configuration.id.uuidString, forType: .string)
-            } label: {
-                Label("Copy ID", systemImage: "doc.on.doc")
-                    .font(.caption)
-            }
-            .buttonStyle(.borderless)
-            .help(configuration.id.uuidString)
+            Text("Add the command you normally run in Terminal. Local Server Wrapper creates an app that starts the server and opens its interface.")
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 420)
+
+            Button("Create Your First App…", action: onCreateApp)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
         }
-        .padding(.top, 4)
-    }
-
-    // MARK: - Action Bar
-
-    private var actionBar: some View {
-        HStack(spacing: 8) {
-            Button(action: onRun) {
-                Label("Run", systemImage: "play.fill")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-
-            Button(action: onGenerate) {
-                HStack {
-                    if isGenerating {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Generating…")
-                    } else {
-                        Image(systemName: "square.and.arrow.up")
-                        Text("Use as standalone app...")
-                    }
-                }
-                .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
-            .disabled(isGenerating)
-        }
-        .controlSize(.large)
-        .padding(.horizontal, 24)
-        .padding(.vertical, 12)
-        .background(.bar)
-    }
-
-    private func formatDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
-    }
-    
-    private var scriptSourceLabel: String {
-        switch configuration.scriptSource {
-        case .command: return "Manual Command"
-        case .file: return "Script File"
-        case .inline: return "Inline Script"
-        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(32)
+        .accessibilityElement(children: .contain)
     }
 }
 
-// MARK: - Detail Row
+struct SearchEmptyState: View {
+    let searchText: String
 
-/// A row displaying a label and value in the detail view
-struct DetailRow: View {
-    let label: String
-    let value: String
-    
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(label)
-                .font(.caption)
-                .foregroundColor(.secondary)
-            
-            Text(value)
-                .font(.body)
-                .textSelection(.enabled)
+        VStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 34))
+                .foregroundStyle(.secondary)
+            Text("No Results")
+                .font(.title3.weight(.semibold))
+            Text("No apps match ‘\(searchText)’.")
+                .foregroundStyle(.secondary)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
-
-// MARK: - Preview
 
 #Preview {
     ConfigurationListView(configurationManager: ConfigurationManager())
 }
-
