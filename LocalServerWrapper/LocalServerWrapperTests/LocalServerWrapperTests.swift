@@ -11,6 +11,63 @@ import Foundation
 
 struct LocalServerWrapperTests {
 
+    @Test @MainActor func missingCustomIconUsesBundledPlaceholder() throws {
+        let fileManager = FileManager.default
+        let bundleURL = fileManager.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("app")
+        let resourcesURL = bundleURL.appendingPathComponent("Contents/Resources")
+
+        try fileManager.createDirectory(at: resourcesURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: bundleURL) }
+
+        let defaultIconURL = try #require(DefaultIcon.resourceURL)
+        #expect(DefaultIcon.image != nil)
+        try IconProcessor.processIcon(customIconPath: nil, bundleURL: bundleURL)
+
+        let generatedIconURL = resourcesURL.appendingPathComponent("AppIcon.icns")
+        #expect(try Data(contentsOf: generatedIconURL) == Data(contentsOf: defaultIconURL))
+    }
+
+    @Test @MainActor func customIconTakesPrecedenceOverBundledPlaceholder() throws {
+        let fileManager = FileManager.default
+        let bundleURL = fileManager.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("app")
+        let resourcesURL = bundleURL.appendingPathComponent("Contents/Resources")
+
+        try fileManager.createDirectory(at: resourcesURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: bundleURL) }
+
+        let customIconURL = try #require(Bundle.main.url(forResource: "AppIcon", withExtension: "icns"))
+        try IconProcessor.processIcon(customIconPath: customIconURL.path, bundleURL: bundleURL)
+
+        let generatedIconURL = resourcesURL.appendingPathComponent("AppIcon.icns")
+        #expect(try Data(contentsOf: generatedIconURL) == Data(contentsOf: customIconURL))
+        #expect(try Data(contentsOf: generatedIconURL) != Data(contentsOf: #require(DefaultIcon.resourceURL)))
+    }
+
+    @Test @MainActor func generatedInfoPlistAlwaysReferencesProcessedIcon() throws {
+        let fileManager = FileManager.default
+        let bundleURL = fileManager.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("app")
+        let contentsURL = bundleURL.appendingPathComponent("Contents")
+
+        try fileManager.createDirectory(at: contentsURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: bundleURL) }
+
+        let configuration = ServerConfiguration(name: "Icon Test", command: "true")
+        try InfoPlistGenerator.generate(for: configuration, at: bundleURL)
+
+        let data = try Data(contentsOf: contentsURL.appendingPathComponent("Info.plist"))
+        let plist = try #require(
+            PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+        )
+
+        #expect(plist["CFBundleIconFile"] as? String == "AppIcon")
+    }
+
     @Test @MainActor func appRowUsesFirstMeaningfulInlineCommand() {
         let configuration = ServerConfiguration(
             name: "Docs",

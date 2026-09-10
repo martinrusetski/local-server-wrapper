@@ -1,16 +1,20 @@
 {
   "fill" : {
-    "solid" : "display-p3:0.76943,0.27693,0.00000,1.00000"
+    "automatic-gradient" : "display-p3:0.76943,0.28802,0.37398,1.00000"
   },
   "groups" : [
     {
       "blur-material" : null,
       "layers" : [
         {
-          "blend-mode" : "multiply",
+          "blend-mode" : "overlay",
+          "fill" : {
+            "solid" : "display-p3:0.96783,0.95767,0.00000,1.00000"
+          },
           "glass" : true,
           "image-name" : "Vector 2.svg",
           "name" : "Vector 2",
+          "opacity" : 0.59,
           "position" : {
             "scale" : 1.42,
             "translation-in-points" : [

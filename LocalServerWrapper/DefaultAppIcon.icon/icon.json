@@ -1,6 +1,6 @@
 {
   "fill" : {
-    "automatic-gradient" : "display-p3:0.76943,0.28802,0.37398,1.00000"
+    "solid" : "display-p3:0.14121,0.96332,1.00000,1.00000"
   },
   "groups" : [
     {
@@ -8,9 +8,21 @@
       "layers" : [
         {
           "blend-mode" : "overlay",
-          "fill" : {
-            "solid" : "display-p3:0.96783,0.95767,0.00000,1.00000"
-          },
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "display-p3:0.26677,0.27547,0.96783,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : "automatic"
+            },
+            {
+              "appearance" : "tinted",
+              "value" : "automatic"
+            }
+          ],
           "glass" : true,
           "image-name" : "Vector 2.svg",
           "name" : "Vector 2",
@@ -18,7 +30,7 @@
           "position" : {
             "scale" : 1.42,
             "translation-in-points" : [
-              0,
+              9.57421875,
               0
             ]
           }

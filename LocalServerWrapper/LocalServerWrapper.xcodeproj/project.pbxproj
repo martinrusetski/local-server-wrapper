@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		018A6B018799C2861118D4E9 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = D70692F4D1FF0C9F02434826 /* Sparkle */; };
 		1F61C87E2FD4D53200E38235 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 1F61C87D2FD4D53200E38235 /* AppIcon.icon */; };
+		1F61C8802FD4D53200E38235 /* DefaultAppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = 1F61C87F2FD4D53200E38235 /* DefaultAppIcon.icns */; };
 		1F9812E42FA51118003032DD /* ServerAppBundle.app in Resources */ = {isa = PBXBuildFile; fileRef = 1F9812E32FA51118003032DD /* ServerAppBundle.app */; };
 /* End PBXBuildFile section */
 
@@ -31,6 +32,8 @@
 
 /* Begin PBXFileReference section */
 		1F61C87D2FD4D53200E38235 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = AppIcon.icon; sourceTree = "<group>"; };
+		1F61C87F2FD4D53200E38235 /* DefaultAppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = DefaultAppIcon.icns; sourceTree = "<group>"; };
+		1F61C8812FD4D53200E38235 /* DefaultAppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = DefaultAppIcon.icon; sourceTree = "<group>"; };
 		1F8D25B82FA49243001DCFE4 /* LocalServerWrapper.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LocalServerWrapper.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1F8D25C52FA49244001DCFE4 /* LocalServerWrapperTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LocalServerWrapperTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		1F8D25CF2FA49244001DCFE4 /* LocalServerWrapperUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LocalServerWrapperUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -91,6 +94,8 @@
 			isa = PBXGroup;
 			children = (
 				1F61C87D2FD4D53200E38235 /* AppIcon.icon */,
+				1F61C8812FD4D53200E38235 /* DefaultAppIcon.icon */,
+				1F61C87F2FD4D53200E38235 /* DefaultAppIcon.icns */,
 				1F9812E32FA51118003032DD /* ServerAppBundle.app */,
 				1F8D25BA2FA49243001DCFE4 /* LocalServerWrapper */,
 				1F8D25C82FA49244001DCFE4 /* LocalServerWrapperTests */,
@@ -238,6 +243,7 @@
 			files = (
 				1F9812E42FA51118003032DD /* ServerAppBundle.app in Resources */,
 				1F61C87E2FD4D53200E38235 /* AppIcon.icon in Resources */,
+				1F61C8802FD4D53200E38235 /* DefaultAppIcon.icns in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -183,7 +183,7 @@ struct ConfigurationListView: View {
 
 // MARK: - App Icon
 
-/// Displays a configuration's custom icon, falling back to a tinted SF Symbol placeholder.
+/// Displays a configuration's custom icon, falling back to the bundled server placeholder.
 struct ConfigIconView: View {
     let configuration: ServerConfiguration
     var size: CGFloat = 40
@@ -198,6 +198,12 @@ struct ConfigIconView: View {
     var body: some View {
         Group {
             if let image = loadedImage {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: size, height: size)
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            } else if let image = DefaultIcon.image {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)

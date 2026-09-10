@@ -242,11 +242,9 @@ class IconProcessor {
     /// - Parameter destinationURL: The destination URL for the icon
     /// - Throws: GenerationError.resourceCopyFailed if copying fails
     private static func copyDefaultIcon(to destinationURL: URL) throws {
-        // Try to find a default icon in the bundle resources
-        if let defaultIconURL = Bundle.main.url(forResource: "DefaultAppIcon", withExtension: "icns") {
+        if let defaultIconURL = DefaultIcon.resourceURL {
             try copyIconFile(from: defaultIconURL, to: destinationURL)
         } else {
-            // Generate a simple default icon programmatically
             try generateDefaultIcon(to: destinationURL)
         }
     }

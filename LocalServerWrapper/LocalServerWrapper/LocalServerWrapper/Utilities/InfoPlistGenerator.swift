@@ -78,10 +78,8 @@ struct InfoPlistGenerator {
         // Copyright
         infoPlist["NSHumanReadableCopyright"] = ""
         
-        // Icon file - set if custom icon provided
-        if configuration.customIconPath != nil {
-            infoPlist["CFBundleIconFile"] = "AppIcon"
-        }
+        // IconProcessor always installs either the custom icon or the bundled placeholder.
+        infoPlist["CFBundleIconFile"] = "AppIcon"
         
         // Minimum system version - macOS 13.0
         infoPlist["LSMinimumSystemVersion"] = "13.0"
