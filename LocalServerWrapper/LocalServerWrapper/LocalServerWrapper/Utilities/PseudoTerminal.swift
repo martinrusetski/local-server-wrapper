@@ -10,7 +10,7 @@ import Darwin
 // (modulo this file's top header comment):
 //   - ServerAppBundle/ServerAppBundle/PseudoTerminal.swift                       (runtime)
 //   - LocalServerWrapper/.../LocalServerWrapper/Utilities/PseudoTerminal.swift   (manager)
-// Any change here MUST be mirrored in the twin. See docs/IMPLEMENTATION_SPEC.md §1.
+// Any change here must be mirrored in the runtime's twin implementation.
 
 /// A pseudo-terminal (PTY) for launching a server so it believes it's attached to a real interactive
 /// terminal. Many launch scripts gate behaviour on `isatty(stdout)` / `[[ -t 1 ]]` — they only start

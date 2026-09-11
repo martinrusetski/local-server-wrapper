@@ -10,7 +10,7 @@ import Darwin
 // (modulo this file's top header comment):
 //   - ServerAppBundle/ServerAppBundle/PortDetector.swift                       (runtime)
 //   - LocalServerWrapper/.../LocalServerWrapper/Utilities/PortDetector.swift   (manager)
-// Any change here MUST be mirrored in the twin. See docs/IMPLEMENTATION_SPEC.md §1.
+// Any change here must be mirrored in the runtime's twin implementation.
 
 /// Discovers which TCP ports a process tree is actually listening on by asking the OS, instead of
 /// parsing the server's stdout. This is the ground-truth source for the server's port in automatic

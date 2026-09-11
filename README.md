@@ -90,7 +90,7 @@ Use Xcode 26.4 or later with its command-line tools selected:
 
 This builds both architectures, embeds the runtime and Sparkle, verifies signatures and resources, and creates `dist/LocalServerWrapper-v0.1.0.dmg`. It does not install the app.
 
-Run the unit-test suite with `./scripts/test.sh`. See [release maintenance](docs/RELEASING.md) for versioning, signing, and the shared Homebrew tap.
+Run the unit-test suite with `./scripts/test.sh`.
 
 ## License
 

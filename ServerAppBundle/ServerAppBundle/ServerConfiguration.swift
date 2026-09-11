@@ -12,7 +12,7 @@ import Foundation
 //   - ServerAppBundle/ServerAppBundle/ServerConfiguration.swift                  (runtime)
 //   - LocalServerWrapper/.../LocalServerWrapper/Models/ServerConfiguration.swift (manager)
 // Any change here MUST be mirrored in the twin, or the embedded configuration.json will silently
-// mismatch the runtime decoder. See docs/IMPLEMENTATION_SPEC.md §1 (the duplicated-file trap).
+// mismatch the runtime decoder. Keep the manager and runtime definitions in sync.
 
 /// How the server launch command is sourced
 enum ScriptSource: String, Codable {
