@@ -4,8 +4,6 @@ Turn a local web server into a standalone Mac app. Open the app to start its ser
 
 Useful for tools you normally launch in Terminal and open at `localhost`, such as development servers, notebooks, and self-hosted utilities. Each generated app gets its own icon, browser storage, and saved logins.
 
-The first public release is being prepared. The installation links and commands below become available when it is published.
-
 ## Requirements
 
 - macOS 13.5 or later, on Apple Silicon or Intel.
