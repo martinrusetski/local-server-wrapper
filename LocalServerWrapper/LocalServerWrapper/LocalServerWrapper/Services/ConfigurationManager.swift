@@ -14,6 +14,8 @@ private let logger = OSLog(subsystem: "com.localserverwrapper.configmanager", ca
 
 /// Protocol defining configuration management capabilities
 protocol ConfigurationManagerProtocol {
+    var loadError: String? { get }
+
     /// Creates a new server configuration
     /// - Parameter config: The configuration to create
     /// - Throws: ValidationError if the configuration is invalid, PersistenceError if save fails
@@ -52,6 +54,7 @@ class ConfigurationManager: ConfigurationManagerProtocol, ObservableObject {
     
     /// In-memory cache of configurations
     private var configurations: [ServerConfiguration]
+    private(set) var loadError: String?
     
     // MARK: - Initialization
     
@@ -71,11 +74,11 @@ class ConfigurationManager: ConfigurationManagerProtocol, ObservableObject {
             self.configurations = try persistenceManager.load()
             os_log(.info, log: logger, "Loaded %d configurations from disk", self.configurations.count)
         } catch {
-            // If loading fails, start with empty array
-            // Error will be logged but not thrown to allow app to start
+            // Preserve the unreadable library and prevent subsequent writes.
             os_log(.error, log: logger, "Failed to load configurations: %{public}@", error.localizedDescription)
             print("Warning: Failed to load configurations: \(error)")
             self.configurations = []
+            self.loadError = "Your saved app library could not be opened. No data has been changed. Restore configurations.json from a backup or correct its permissions, then reopen the manager.\n\n\(error.localizedDescription)"
         }
     }
     
@@ -85,6 +88,7 @@ class ConfigurationManager: ConfigurationManagerProtocol, ObservableObject {
     /// - Parameter config: The configuration to create
     /// - Throws: ValidationError if the configuration is invalid, PersistenceError if save fails
     func createConfiguration(_ config: ServerConfiguration) throws {
+        if let loadError { throw PersistenceError.readFailed(loadError) }
         os_log(.info, log: logger, "Creating configuration: %{public}@", config.name)
         
         // Validate the configuration
@@ -122,6 +126,7 @@ class ConfigurationManager: ConfigurationManagerProtocol, ObservableObject {
     /// - Parameter config: The configuration to update
     /// - Throws: ValidationError if the configuration is invalid, PersistenceError if save fails
     func updateConfiguration(_ config: ServerConfiguration) throws {
+        if let loadError { throw PersistenceError.readFailed(loadError) }
         os_log(.info, log: logger, "Updating configuration: %{public}@", config.name)
         
         // Validate the configuration
@@ -174,6 +179,7 @@ class ConfigurationManager: ConfigurationManagerProtocol, ObservableObject {
     /// - Parameter id: The unique identifier of the configuration to delete
     /// - Throws: PersistenceError if save fails
     func deleteConfiguration(id: UUID) throws {
+        if let loadError { throw PersistenceError.readFailed(loadError) }
         os_log(.info, log: logger, "Deleting configuration with ID: %{public}@", id.uuidString)
         
         // Find the index of the configuration to delete

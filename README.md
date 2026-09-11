@@ -1,162 +1,99 @@
 # Local Server Wrapper
 
-A macOS app that turns local web servers — the kind you start in a terminal and use in a browser tab — into standalone Mac apps with their own icon, window, and lifecycle.
+Turn a local web server into a standalone Mac app. Open the app to start its server and use its web interface in a dedicated window. Quit it to stop the server.
 
-## Why this exists
+Useful for tools you normally launch in Terminal and open at `localhost`, such as development servers, notebooks, and self-hosted utilities. Each generated app gets its own icon, browser storage, and saved logins.
 
-A lot of useful software today runs as a local web server: AI tools like Open WebUI or ComfyUI, Jupyter notebooks, development servers, self-hosted utilities. Using them usually means the same routine — open a terminal, run a command, keep that terminal window alive, then find the right `localhost` tab among all your other browser tabs. Two things make this worse over time:
+The first public release is being prepared. The installation links and commands below become available when it is published.
 
-- **Tab and terminal clutter.** Each tool needs a running terminal plus a browser tab. Neither looks or behaves like an app: no dock icon, no Cmd+Tab entry, easy to close by accident, easy to forget the server is still running.
-- **The localhost password pile.** Browser password managers group credentials by hostname, so every local tool's login lands under one "localhost" entry. Autofill offers you the wrong credentials, and saving new ones adds to the pile.
+## Requirements
 
-Some tools ship their own desktop app to solve this, but only for themselves. Browser features like Safari's "Add to Dock" give a local tool its own window, but the server still has to be started and stopped by hand in a terminal.
+- macOS 13.5 or later, on Apple Silicon or Intel.
+- The server software and its dependencies must already be installed. Local Server Wrapper does not install Node, Python, or the tools you want to wrap.
 
-Local Server Wrapper handles both halves for any tool: each configured server becomes a real `.app` in your Applications folder. Opening it starts the server, waits until it's ready, and shows its web UI in its own window. Quitting the app shuts the server down. Credentials are stored per app in the macOS Keychain, so each tool keeps its own logins.
+## Install
 
-## Features
+### Homebrew
 
-### Generated apps
-
-- **One double-click to launch**: the app starts your server command, watches its output until the server is ready (including detecting the actual port if it differs from the configured one), then loads the web UI.
-- **Clean shutdown**: quitting the app terminates the whole server process tree — no orphaned processes, no forgotten terminal windows.
-- **Built-in terminal sidebar** (⌘⇧T): the server runs in a real pseudo-terminal, so you can watch its live output and interact with it when needed.
-- **Per-app credentials**: logins are saved to the macOS Keychain under each app's own identity and matched by exact origin, so different tools never share or mix credentials.
-- **Per-app browsing data**: each generated app is a separate macOS app, so cookies, sessions, and local storage are isolated from your browser and from other wrapped tools.
-- **Browser-open interception**: when the server tries to open your default browser (many tools do this on startup), the URL is redirected into the app's own window instead.
-- **Server restart** (⌘R), page reload (⌘⇧R), and back/forward navigation without leaving the app.
-
-### Manager app
-
-- Create, edit, search, and delete server configurations: name, command, arguments, URL, and a custom icon.
-- Generate a standalone `.app` bundle from any configuration.
-- Generated apps read their configuration live from a shared store, so editing a configuration in the manager takes effect the next time the generated app launches — no need to regenerate the bundle.
-- Newly generated bundles are self-contained and carry a signed `ServerRuntime.framework` under `Contents/Frameworks`. This prevents launchers from resolving executable code from a user-home search path. Regenerate an existing launcher to move it to the self-contained format; the manager keeps updating the old shared runtime temporarily so legacy launchers continue to work during that transition.
-- Configurations are persisted as JSON with automatic backups.
-
-## Project Structure
-
-```
-LocalServerWrapper/                        # Manager app (Xcode project)
-├── LocalServerWrapper/                   # Source: Models, Services, ViewModels, Views, Utilities
-├── LocalServerWrapperTests/              # Unit tests
-├── LocalServerWrapperUITests/            # UI tests
-└── HOW_TO_RUN.md                         # Running instructions
-
-ServerAppBundle/                           # Generated-app runtime (Xcode project)
-├── ServerAppBundle/                      # Runtime source: process, terminal, web view, credentials
-├── ServerRuntime/                        # Shared framework target wrapping the runtime
-├── ServerLauncher/                       # Thin launcher stub embedded in generated bundles
-└── ServerAppBundleTests/                 # Unit tests
-
-docs/specs/local-server-wrapper/           # Requirements, design, and task documents
+```sh
+brew tap martinrusetski/tap
+brew trust martinrusetski/tap
+brew install --cask martinrusetski/tap/local-server-wrapper
 ```
 
-## Quick Start
+### Download
 
-### Running the App
+Download the latest DMG from [Releases](https://github.com/martinrusetski/local-server-wrapper/releases/latest), open it, and drag `LocalServerWrapper.app` into Applications.
 
-1. Open the project in Xcode:
-   ```bash
-   open LocalServerWrapper/LocalServerWrapper.xcodeproj
-   ```
+The app is ad-hoc signed and is not notarized by Apple. If macOS blocks the first launch, open **System Settings > Privacy & Security > Open Anyway**. Alternatively, remove the quarantine flag in Terminal:
 
-2. Press `Cmd+R` to build and run
-
-### Creating a Configuration
-
-1. Click the "+" button in the toolbar
-2. Fill in your server details:
-   - **Name**: Display name for your server
-   - **Command**: The executable (e.g., `npm`, `python3`)
-   - **Arguments**: Command arguments (e.g., `run dev`)
-   - **Localhost URL**: Where your server runs (e.g., `http://localhost:3000`)
-   - **Icon** (optional): Custom icon for the app bundle
-3. Click "Save"
-
-### Managing Configurations
-
-- **Edit**: Right-click → Edit, or swipe left
-- **Delete**: Right-click → Delete, or swipe right
-- **Generate App Bundle**: Right-click → Generate App Bundle
-- **Search**: Use the search bar to filter configurations
-
-## Technical Details
-
-- **Platform**: macOS 13.0+
-- **Language**: Swift 5.9+
-- **UI Framework**: SwiftUI (WKWebView for the embedded browser)
-- **Architecture**: MVVM; generated bundles are thin launchers loading a shared runtime framework
-- **Testing**: XCTest
-
-## Configuration Storage
-
-Configurations are saved to:
-```
-~/Library/Application Support/LocalServerWrapper/configurations.json
+```sh
+xattr -dr com.apple.quarantine /Applications/LocalServerWrapper.app
 ```
 
-Automatic backups are created at:
-```
-~/Library/Application Support/LocalServerWrapper/configurations.json.backup
-```
+The Homebrew cask handles this step during installation.
 
-The shared runtime framework is installed to:
-```
-~/Library/Frameworks/ServerRuntime.framework  # compatibility runtime for legacy thin launchers
-```
+## Create an app
 
-## Testing
+1. Open Local Server Wrapper and click **New App…**.
+2. Give it a name and enter the shell command you normally use to start the server. Multi-line scripts are supported.
+3. Choose **Run in folder** if the command needs to run inside a particular project. You can also select a script file and a custom icon.
+4. Leave **Server** blank to detect its URL and port automatically, or enter a fixed URL. A fixed URL waits for an HTTP response before opening.
+5. Use **Test Launch** to check the command, then save the setup.
+6. Click **Generate App**, choose where to save it, and open the resulting `.app`.
 
-Run tests in Xcode:
-```bash
-# Manager app
-xcodebuild test -project LocalServerWrapper/LocalServerWrapper.xcodeproj -scheme LocalServerWrapper
+For an npm project, for example, enter `npm run dev` and select the project folder under **Run in folder**. The app uses a non-interactive shell environment. Tools configured only in your interactive shell, such as an nvm installation, may need their setup commands included in the script or an explicit executable path.
 
-# Or press Cmd+U in Xcode
-```
+Editing and saving a setup updates its last generated copy in place if that copy is still at the saved location. Renaming a setup does not rename that exported file. Deleting a setup removes its internal cached app; exported copies remain on disk and can still use their embedded configuration.
 
-## Keyboard Shortcuts
+## Using a generated app
 
-### Manager: Configuration List
+- Opening it starts the server and loads its web interface when readiness is detected.
+- The terminal sidebar shows output and lets you send input. It is available with **⌘⇧T**.
+- Login credentials can be saved in macOS Keychain. They are separated by generated app and matched to the page's exact origin.
+- Browser requests made through intercepted `open` commands are redirected into the app window.
+- Quitting stops the launched process tree. Commands that intentionally detach into background services should be run in their foreground mode instead.
+
 | Shortcut | Action |
-|----------|--------|
-| ⌘N | New Configuration |
-
-### Manager: Configuration Editor
-| Shortcut | Action |
-|----------|--------|
-| ⌘↩ | Save configuration |
-| ⎋ | Cancel / Dismiss |
-
-### Generated App
-| Shortcut | Action |
-|----------|--------|
+| --- | --- |
 | ⌘R | Restart server |
 | ⌘⇧R | Reload page |
-| ⌘[ | Back |
-| ⌘] | Forward |
+| ⌘[ / ⌘] | Back / forward |
 | ⌘⇧T | Toggle terminal sidebar |
-| ⌥⌘T | Hide/show toolbar |
+| ⌥⌘T | Toggle toolbar |
 
-## Building
+## Updates
 
-### Manager (Configuration Manager)
-```bash
-open LocalServerWrapper/LocalServerWrapper.xcodeproj
-# Then press ⌘B or ⌘R
+Use **Local Server Wrapper > Check for Updates…** in the manager. Sparkle checks the project's update feed and verifies downloaded updates against the app's embedded signing key. Automatic checks follow the preference you choose in Sparkle's prompt.
+
+Generated apps contain their own runtime. After updating the manager, use **Generate App** again for each setup to include the latest runtime fixes. Their existing configuration and app identity are retained.
+
+## Data and troubleshooting
+
+Setups and custom icons live in:
+
+```text
+~/Library/Application Support/LocalServerWrapper/
 ```
 
-### ServerAppBundle (runtime for generated bundles)
-The generated app bundles need a **Release** build of ServerAppBundle:
-```bash
-cd ServerAppBundle
-xcodebuild -project ServerAppBundle.xcodeproj -scheme ServerAppBundle -configuration Release -derivedDataPath build clean build
+The previous configuration file is backed up under `Backups` before each save. If the manager cannot read your library, it blocks changes and offers to show its folder. Restore `configurations.json` from a backup or correct its permissions, then reopen the manager.
+
+If startup fails, inspect the terminal output and check the command and working folder. **Advanced > Run without a terminal** is available for servers that behave incorrectly with a pseudo-terminal. If URL detection picks the wrong address, enter the intended URL explicitly.
+
+The generated app runs your command with your account's permissions. Use commands and server software you trust.
+
+## Build from source
+
+Use Xcode 26.4 or later with its command-line tools selected:
+
+```sh
+./make-dmg.sh
 ```
-This creates the Release build used when generating app bundles from the Configuration Manager.
 
-## Documentation
+This builds both architectures, embeds the runtime and Sparkle, verifies signatures and resources, and creates `dist/LocalServerWrapper-v0.1.0.dmg`. It does not install the app.
 
-- [How to Run](LocalServerWrapper/HOW_TO_RUN.md) - Detailed running and testing guide
-- [Requirements](docs/specs/local-server-wrapper/requirements.md) - Project requirements
-- [Design](docs/specs/local-server-wrapper/design.md) - Architecture and design
-- [Tasks](docs/specs/local-server-wrapper/tasks.md) - Implementation task list
+Run the unit-test suite with `./scripts/test.sh`. See [release maintenance](docs/RELEASING.md) for versioning, signing, and the shared Homebrew tap.
+
+## License
+
+[MIT](LICENSE). See [third-party notices](THIRD_PARTY_NOTICES.md) for bundled software.

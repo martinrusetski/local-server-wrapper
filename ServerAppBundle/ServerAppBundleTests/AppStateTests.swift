@@ -45,10 +45,46 @@ final class AppStateTests: XCTestCase {
         XCTAssertNotNil(appState.webViewModel)
     }
     
+    func testFixedURLWaitsForDelayedHTTPServer() async throws {
+        let server = Process()
+        let output = Pipe()
+        server.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        server.arguments = ["-u", "-c", """
+        from http.server import HTTPServer, BaseHTTPRequestHandler
+        import time
+        class Handler(BaseHTTPRequestHandler):
+            def do_HEAD(self):
+                self.send_response(501)
+                self.end_headers()
+            def log_message(self, *args): pass
+        server = HTTPServer(('127.0.0.1', 0), Handler)
+        print(server.server_port, flush=True)
+        time.sleep(1)
+        server.serve_forever()
+        """]
+        server.standardOutput = output
+        try server.run()
+        defer { server.terminate(); server.waitUntilExit() }
+        let data = output.fileHandleForReading.availableData
+        let port = try XCTUnwrap(Int(String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)))
+        let url = "http://127.0.0.1:\(port)/app"
+        let state = AppState(configuration: ServerConfiguration(name: "Delayed HTTP fixture", command: "/bin/sleep", arguments: ["10"], localhostURL: url, urlDetectionMode: .fixed))
+        defer { state.prepareForQuit() }
+        state.startServer()
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertFalse(state.readinessDetector.isReady)
+        XCTAssertNil(state.webViewModel.url)
+        let deadline = Date().addingTimeInterval(5)
+        while !state.readinessDetector.isReady && Date() < deadline {
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTAssertTrue(state.readinessDetector.isReady)
+        XCTAssertEqual(state.webViewModel.url?.absoluteString, url)
+    }
+
     func testAppStateWithNoReadySignal() {
         // Given: A configuration with no ready signal pattern
-        // Fixed mode with no ready pattern is the path that becomes ready immediately. (Automatic
-        // mode — the default — deliberately waits for an observed port instead.)
+        // Fixed mode waits for an HTTP response before opening the browser.
         let config = ServerConfiguration(
             name: "Immediate Server",
             command: "/bin/echo",
@@ -61,9 +97,9 @@ final class AppStateTests: XCTestCase {
         // When: Creating an AppState
         let appState = AppState(configuration: config)
 
-        // Then: Readiness detector should be ready immediately
-        XCTAssertTrue(appState.readinessDetector.isReady)
-        XCTAssertNotNil(appState.readinessDetector.detectedURL)
+        // No server has been started yet.
+        XCTAssertFalse(appState.readinessDetector.isReady)
+        XCTAssertNil(appState.readinessDetector.detectedURL)
     }
     
     // MARK: - Process Output to Readiness Detector Integration Tests
@@ -105,7 +141,7 @@ final class AppStateTests: XCTestCase {
     // MARK: - Readiness to Browser Loading Integration Tests
     
     func testReadinessTriggersBrowserLoading() async {
-        // Given: A configuration with immediate readiness (fixed mode, no ready signal)
+        // Given: A fixed URL waiting for an HTTP response
         let config = ServerConfiguration(
             name: "Immediate Server",
             command: "/bin/echo",
@@ -117,13 +153,8 @@ final class AppStateTests: XCTestCase {
         
         let appState = AppState(configuration: config)
 
-        // Readiness is immediate (no ready signal pattern), so the readiness→browser-load
-        // subscription fires during AppState setup. Poll for the URL rather than relying on a
-        // change event, which we would subscribe to only after the value was already set.
-        let deadline = Date().addingTimeInterval(1.0)
-        while appState.webViewModel.url == nil && Date() < deadline {
-            try? await Task.sleep(nanoseconds: 20_000_000)
-        }
+        XCTAssertNil(appState.webViewModel.url)
+        appState.readinessDetector.noteHTTPResponse()
 
         XCTAssertNotNil(appState.webViewModel.url)
         XCTAssertEqual(appState.webViewModel.url?.absoluteString, "http://localhost:8080")

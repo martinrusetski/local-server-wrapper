@@ -45,7 +45,15 @@ struct ConfigurationListView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if viewModel.configurations.isEmpty {
+                if let loadError = viewModel.configurationManager.loadError {
+                    VStack(spacing: 12) {
+                        Text("Couldn’t Open App Library").font(.headline)
+                        Text(loadError).foregroundStyle(.secondary)
+                        Button("Show Library Folder") {
+                            NSWorkspace.shared.open(ConfigurationListViewModel.bundlesDirectory.deletingLastPathComponent())
+                        }
+                    }.padding(24).frame(maxWidth: 480)
+                } else if viewModel.configurations.isEmpty {
                     EmptyStateView {
                         activeSheet = .new
                     }
@@ -70,6 +78,7 @@ struct ConfigurationListView: View {
                     .buttonStyle(.bordered)
                     .keyboardShortcut("n", modifiers: .command)
                     .help("Configure a new server app")
+                    .disabled(viewModel.configurationManager.loadError != nil)
                 }
             }
         }

@@ -57,7 +57,7 @@ class PersistenceManager: PersistenceManagerProtocol {
     
     /// Initialize a new persistence manager
     /// - Parameter fileManager: The file manager to use (defaults to .default)
-    init(fileManager: FileManager = .default) {
+    init(fileManager: FileManager = .default, directory: URL? = nil) {
         self.fileManager = fileManager
         
         // Set up the configurations directory path
@@ -66,7 +66,7 @@ class PersistenceManager: PersistenceManagerProtocol {
             in: .userDomainMask
         ).first!
         
-        let appDirectory = appSupportURL.appendingPathComponent("LocalServerWrapper")
+        let appDirectory = directory ?? appSupportURL.appendingPathComponent("LocalServerWrapper")
         self.configurationsURL = appDirectory.appendingPathComponent("configurations.json")
         self.backupsDirectory = appDirectory.appendingPathComponent("Backups")
         
@@ -107,6 +107,9 @@ class PersistenceManager: PersistenceManagerProtocol {
         // Check available disk space
         try checkDiskSpace(requiredBytes: data.count)
         
+        // Preserve the previous library before replacing it. A backup failure aborts the save.
+        try backup()
+
         // Write atomically to prevent corruption
         do {
             try data.write(to: configurationsURL, options: .atomic)

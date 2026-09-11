@@ -52,7 +52,8 @@ class ReadinessDetectorTests: XCTestCase {
         let detector = ReadinessDetector(
             readySignalPattern: "Server listening",
             portDetectionPattern: "port (\\d+)",
-            baseURL: "http://localhost:3000"
+            baseURL: "http://localhost:3000",
+            mode: .automatic
         )
         
         // When: We monitor output with ready signal and port
@@ -64,7 +65,7 @@ class ReadinessDetectorTests: XCTestCase {
         XCTAssertEqual(detector.detectedURL?.absoluteString, "http://localhost:8080", "Should use detected port")
     }
     
-    func testNoReadySignalPatternMarksReadyImmediately() async {
+    func testFixedURLWaitsForHTTPResponse() async {
         // Given: A detector with no ready signal pattern
         let detector = ReadinessDetector(
             readySignalPattern: nil,
@@ -72,13 +73,17 @@ class ReadinessDetectorTests: XCTestCase {
             baseURL: "http://localhost:5000"
         )
         
-        // Then: Should be ready immediately
-        XCTAssertTrue(detector.isReady, "Detector should be ready immediately when no pattern configured")
+        XCTAssertFalse(detector.isReady)
+        XCTAssertNil(detector.detectedURL)
+        detector.monitor(output: "Starting http://localhost:5000")
+        XCTAssertFalse(detector.isReady)
+        detector.noteHTTPResponse()
+        XCTAssertTrue(detector.isReady)
         XCTAssertNotNil(detector.detectedURL, "Should have a detected URL")
         XCTAssertEqual(detector.detectedURL?.absoluteString, "http://localhost:5000", "Should use base URL")
     }
     
-    func testEmptyReadySignalPatternMarksReadyImmediately() async {
+    func testEmptyReadySignalPatternWaitsForHTTPResponse() async {
         // Given: A detector with empty ready signal pattern
         let detector = ReadinessDetector(
             readySignalPattern: "",
@@ -86,8 +91,10 @@ class ReadinessDetectorTests: XCTestCase {
             baseURL: "http://localhost:4000"
         )
         
-        // Then: Should be ready immediately
-        XCTAssertTrue(detector.isReady, "Detector should be ready immediately when pattern is empty")
+        detector.monitor(output: "Starting server")
+        XCTAssertFalse(detector.isReady)
+        detector.noteHTTPResponse()
+        XCTAssertTrue(detector.isReady)
         XCTAssertNotNil(detector.detectedURL, "Should have a detected URL")
         XCTAssertEqual(detector.detectedURL?.absoluteString, "http://localhost:4000", "Should use base URL")
     }
@@ -121,7 +128,7 @@ class ReadinessDetectorTests: XCTestCase {
             mode: .automatic
         )
 
-        // Then: Should NOT be ready until a real signal arrives (unlike fixed mode)
+        // Then: Should NOT be ready until a real signal arrives
         XCTAssertFalse(detector.isReady, "Automatic mode must wait for a real readiness signal")
         XCTAssertNil(detector.detectedURL)
     }
@@ -195,20 +202,22 @@ class ReadinessDetectorTests: XCTestCase {
         XCTAssertEqual(detector.detectedURL?.absoluteString, "http://localhost:5173")
     }
 
-    func testResetWithNoPatternMarksReadyImmediately() async {
-        // Given: A detector with no pattern
-        let detector = ReadinessDetector(
-            readySignalPattern: nil,
-            portDetectionPattern: nil,
-            baseURL: "http://localhost:3000"
-        )
+    func testResetRequiresAnotherHTTPResponse() async {
+        let detector = ReadinessDetector(readySignalPattern: nil, portDetectionPattern: nil, baseURL: "http://localhost:3000")
+        detector.noteHTTPResponse()
         XCTAssertTrue(detector.isReady)
-        
-        // When: We reset
         detector.reset()
-        
-        // Then: Should be ready immediately again
-        XCTAssertTrue(detector.isReady, "Detector should be ready immediately after reset when no pattern configured")
-        XCTAssertNotNil(detector.detectedURL, "Should have a detected URL")
+        XCTAssertFalse(detector.isReady)
+        XCTAssertNil(detector.detectedURL)
+        detector.noteHTTPResponse()
+        XCTAssertTrue(detector.isReady)
+    }
+
+    func testFixedURLPreservesPathAndPortWithReadySignal() async {
+        let detector = ReadinessDetector(readySignalPattern: "Ready", portDetectionPattern: "port (\\d+)", baseURL: "http://localhost:3000/app")
+        detector.noteHTTPResponse()
+        XCTAssertFalse(detector.isReady)
+        detector.monitor(output: "Ready on port 9000")
+        XCTAssertEqual(detector.detectedURL?.absoluteString, "http://localhost:3000/app")
     }
 }

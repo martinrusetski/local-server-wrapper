@@ -1,0 +1,25 @@
+name: Checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regression-tests:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate release helper scripts
+        run: |
+          bash -n make-dmg.sh update-appcast.sh inject-sparkle-keys.sh embed-runtime.sh scripts/*.sh
+          python3 scripts/test-release.py
+      - name: Run app unit tests
+        run: ./scripts/test.sh

@@ -1,82 +1,23 @@
 #!/bin/bash
-# Signs a release DMG with the Sparkle EdDSA key and prepends a new <item> to
-# appcast.xml (newest first). Existing entries are preserved.
-#
-# The private signing key is read, in order of preference:
-#   1. $SPARKLE_PRIVATE_KEY  (base64 string; used in CI via a GitHub secret)
-#   2. the login Keychain    (local machine — account "local-server-wrapper",
-#                             where generate_keys stored it)
-#
-# The sign_update tool is located from, in order:
-#   1. $SPARKLE_BIN_DIR      (CI points this at SwiftPM's checksum-verified Sparkle artifact)
-#   2. the Xcode SourcePackages artifacts under LocalServerWrapper/build
-#
-# Usage:
-#   ./update-appcast.sh <short-version> <build-version> <dmg-path> <download-url>
+# Sign and independently verify a DMG before adding it to the update feed.
 set -euo pipefail
-
-SHORT_VERSION="$1"
-BUILD_VERSION="$2"
-DMG_PATH="$3"
-DOWNLOAD_URL="$4"
-MIN_SYSTEM_VERSION="13.5"
-KEYCHAIN_ACCOUNT="local-server-wrapper"
-
-if [ -z "$SHORT_VERSION" ] || [ -z "$BUILD_VERSION" ] || [ -z "$DMG_PATH" ] || [ -z "$DOWNLOAD_URL" ]; then
-    echo "usage: update-appcast.sh <short-version> <build-version> <dmg-path> <download-url>" >&2
-    exit 1
-fi
-
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-APPCAST="${SCRIPT_DIR}/appcast.xml"
-
-if [ -n "${SPARKLE_BIN_DIR:-}" ] && [ -x "${SPARKLE_BIN_DIR}/sign_update" ]; then
-    SIGN_UPDATE="${SPARKLE_BIN_DIR}/sign_update"
-else
-    SIGN_UPDATE="$(find "${SCRIPT_DIR}/LocalServerWrapper/build" -name sign_update -type f -path '*bin*' 2>/dev/null | head -1)"
-fi
-
-if [ -z "$SIGN_UPDATE" ] || [ ! -x "$SIGN_UPDATE" ]; then
-    echo "update-appcast: sign_update tool not found (set SPARKLE_BIN_DIR or build first)" >&2
-    exit 1
-fi
-
-# sign_update prints:  sparkle:edSignature="..." length="..."
-# CI: key from SPARKLE_PRIVATE_KEY, piped via --ed-key-file - (the -s flag is
-# deprecated and rejects newer keys). Local: read from the Keychain account.
+[[ $# == 4 ]] || { echo "usage: $0 <version> <build-number> <dmg> <download-url>" >&2; exit 1; }
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+VERSION="$1"
+BUILD_NUMBER="$2"
+DMG="$3"
+URL="$4"
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+[[ "$BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]] || exit 1
+EXPECTED_URL="https://github.com/martinrusetski/local-server-wrapper/releases/download/v${VERSION}/LocalServerWrapper-v${VERSION}.dmg"
+[[ "$URL" == "$EXPECTED_URL" ]] || { echo "Unexpected release URL" >&2; exit 1; }
+SPARKLE_BIN_DIR="${SPARKLE_BIN_DIR:-${LSW_BUILD_ROOT:-$ROOT/.build/distribution}/manager/SourcePackages/artifacts/sparkle/Sparkle/bin}"
+SIGN_UPDATE="$SPARKLE_BIN_DIR/sign_update"
+test -x "$SIGN_UPDATE"
 if [ -n "${SPARKLE_PRIVATE_KEY:-}" ]; then
-    SIG_ATTRS="$(printf '%s' "$SPARKLE_PRIVATE_KEY" | "$SIGN_UPDATE" "$DMG_PATH" --ed-key-file -)"
+    SIGNATURE="$(printf '%s' "$SPARKLE_PRIVATE_KEY" | "$SIGN_UPDATE" --ed-key-file - -p "$DMG")"
 else
-    SIG_ATTRS="$("$SIGN_UPDATE" "$DMG_PATH" --account "$KEYCHAIN_ACCOUNT")"
+    SIGNATURE="$("$SIGN_UPDATE" --account local-server-wrapper -p "$DMG")"
 fi
-
-PUB_DATE="$(LC_ALL=C date -u '+%a, %d %b %Y %H:%M:%S +0000')"
-
-ITEM="    <item>
-      <title>${SHORT_VERSION}</title>
-      <pubDate>${PUB_DATE}</pubDate>
-      <sparkle:version>${BUILD_VERSION}</sparkle:version>
-      <sparkle:shortVersionString>${SHORT_VERSION}</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>${MIN_SYSTEM_VERSION}</sparkle:minimumSystemVersion>
-      <enclosure url=\"${DOWNLOAD_URL}\" ${SIG_ATTRS} type=\"application/octet-stream\" />
-    </item>"
-
-# Insert the new item immediately after the marker so the newest release is
-# first. A Python one-liner does a reliable multi-line insert.
-MARKER="<!-- BEGIN ITEMS -->"
-export ITEM MARKER
-python3 - "$APPCAST" <<'PY'
-import os, sys
-path = sys.argv[1]
-marker = os.environ["MARKER"]
-item = os.environ["ITEM"]
-with open(path, "r", encoding="utf-8") as f:
-    content = f.read()
-if marker not in content:
-    sys.exit(f"marker {marker!r} not found in {path}")
-content = content.replace(marker, marker + "\n" + item, 1)
-with open(path, "w", encoding="utf-8") as f:
-    f.write(content)
-PY
-
-echo "Appcast updated with ${SHORT_VERSION} (build ${BUILD_VERSION})"
+swift "$ROOT/scripts/verify-update.swift" "$ROOT/Resources/sparkle_public_key.txt" "$DMG" "$SIGNATURE"
+python3 "$ROOT/scripts/update-appcast.py" "${APPCAST_PATH:-$ROOT/appcast.xml}" "$VERSION" "$BUILD_NUMBER" "$DMG" "$URL" "$SIGNATURE"

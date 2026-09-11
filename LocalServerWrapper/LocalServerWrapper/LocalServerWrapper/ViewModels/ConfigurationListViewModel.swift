@@ -77,6 +77,11 @@ class ConfigurationListViewModel: ObservableObject {
     /// Refresh the list of configurations
     func refresh() {
         configurations = configurationManager.listConfigurations()
+        if let loadError = configurationManager.loadError {
+            errorMessage = loadError
+            showingError = true
+            return
+        }
         refreshExportedBundleURLs()
     }
 
@@ -111,17 +116,9 @@ class ConfigurationListViewModel: ObservableObject {
     }
     
     /// Directory where run bundles are stored in the app library
-    private static var bundlesDirectory: URL {
+    static var bundlesDirectory: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         return appSupport.appendingPathComponent("LocalServerWrapper/Bundles")
-    }
-    
-    /// Ensure the bundles directory exists
-    private func ensureBundlesDirectory() throws {
-        let dir = Self.bundlesDirectory
-        if !FileManager.default.fileExists(atPath: dir.path) {
-            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        }
     }
     
     /// Generate and export a standalone copy of the app bundle to a user-chosen location.
@@ -251,7 +248,11 @@ class ConfigurationListViewModel: ObservableObject {
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
         encoder.dateEncodingStrategy = .iso8601
-        guard let data = try? encoder.encode(config) else { return "" }
+        guard var data = try? encoder.encode(config) else { return "" }
+        // A manager update ships a new runtime even when the configuration is unchanged.
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+        data.append(Data("\n\(version):\(build)".utf8))
         return SHA256.hash(data: data).compactMap { String(format: "%02x", $0) }.joined()
     }
     
@@ -344,22 +345,23 @@ class ConfigurationListViewModel: ObservableObject {
     /// - Parameter configuration: The configuration whose bundle is needed
     /// - Returns: The URL of the up-to-date canonical bundle
     /// - Throws: GenerationError or CancellationError if generation fails or is cancelled
-    private func ensureCanonicalBundle(for configuration: ServerConfiguration) async throws -> URL {
+    func ensureCanonicalBundle(for configuration: ServerConfiguration) async throws -> URL {
         let currentHash = configHash(configuration)
         let storedHash = UserDefaults.standard.string(forKey: hashKey(for: configuration.id))
-        let bundleURL = Self.bundlesDirectory.appendingPathComponent("\(sanitizeForBundleName(configuration.name)).app")
+        let directory = Self.bundlesDirectory.appendingPathComponent(configuration.id.uuidString, isDirectory: true)
+        let bundleURL = directory.appendingPathComponent("\(sanitizeForBundleName(configuration.name)).app")
 
         if currentHash == storedHash, FileManager.default.fileExists(atPath: bundleURL.path) {
             os_log(.info, log: logger, "Configuration unchanged, reusing existing bundle: %{public}@", bundleURL.path)
             return bundleURL
         }
 
-        try ensureBundlesDirectory()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
         os_log(.info, log: logger, "Generating canonical bundle for: %{public}@", configuration.name)
         let generatedURL = try await bundleGenerator.generate(
             configuration: configuration,
-            outputPath: Self.bundlesDirectory,
+            outputPath: directory,
             progressHandler: { [weak self] progress, status in
                 Task { @MainActor in
                     guard let self,
@@ -377,7 +379,8 @@ class ConfigurationListViewModel: ObservableObject {
         // directory would accumulate an orphan under the old name. Remove the previous canonical
         // bundle when the path has changed.
         let pathKey = bundlePathKey(for: configuration.id)
-        if let oldPath = UserDefaults.standard.string(forKey: pathKey), oldPath != generatedURL.path {
+        if let oldPath = UserDefaults.standard.string(forKey: pathKey), oldPath != generatedURL.path,
+           URL(fileURLWithPath: oldPath).deletingLastPathComponent().path == directory.path {
             try? FileManager.default.removeItem(atPath: oldPath)
         }
         UserDefaults.standard.set(generatedURL.path, forKey: pathKey)
@@ -425,7 +428,8 @@ class ConfigurationListViewModel: ObservableObject {
     /// Remove a configuration's canonical bundle and its bookkeeping keys (called on delete).
     private func removeCanonicalBundle(for configId: UUID) {
         let pathKey = bundlePathKey(for: configId)
-        if let path = UserDefaults.standard.string(forKey: pathKey) {
+        if let path = UserDefaults.standard.string(forKey: pathKey),
+           URL(fileURLWithPath: path).deletingLastPathComponent().lastPathComponent == configId.uuidString {
             try? FileManager.default.removeItem(atPath: path)
             os_log(.info, log: logger, "Removed canonical bundle for deleted configuration: %{public}@", path)
         }

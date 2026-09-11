@@ -67,10 +67,8 @@ class ReadinessDetector: ReadinessDetectorProtocol {
     ///   - readySignalPattern: Optional regex pattern to detect server readiness (e.g., "Server listening on")
     ///   - portDetectionPattern: Optional regex pattern to extract port number (e.g., "port (\\d+)")
     ///   - baseURL: The base URL to use (e.g., "http://localhost:3000")
-    ///   - mode: How the URL is resolved. `.fixed` (default) preserves the legacy behaviour of
-    ///     becoming ready immediately when no ready-signal pattern is set. `.automatic` instead
-    ///     waits for a real signal — an observed listening port (see `noteListeningPort`), a URL in
-    ///     the output, or the ready pattern — so the browser only loads once the server is actually up.
+    ///   - mode: Fixed URLs wait for an HTTP response or an explicit ready signal. Automatic
+    ///     mode detects a listening port or a URL in the server's output.
     init(
         readySignalPattern: String?,
         portDetectionPattern: String?,
@@ -85,7 +83,7 @@ class ReadinessDetector: ReadinessDetectorProtocol {
         os_log(.info, log: logger, "Initializing readiness detector with base URL: %{public}@", baseURL)
         
         // Compile regex patterns if provided
-        if let pattern = readySignalPattern {
+        if let pattern = readySignalPattern, !pattern.isEmpty {
             self.readySignalRegex = try? NSRegularExpression(
                 pattern: pattern,
                 options: [.caseInsensitive]
@@ -107,15 +105,6 @@ class ReadinessDetector: ReadinessDetectorProtocol {
             } else {
                 os_log(.error, log: logger, "Failed to compile port detection pattern: %{public}@", pattern)
             }
-        }
-        
-        // In fixed mode, with no ready-signal pattern, become ready immediately (legacy behaviour).
-        // In automatic mode we deliberately wait for a real signal so we don't load the browser at a
-        // dead port before the server is listening.
-        if mode == .fixed, readySignalPattern == nil || readySignalPattern?.isEmpty == true {
-            os_log(.info, log: logger, "No ready signal pattern configured (fixed mode), marking as ready immediately")
-            self.isReady = true
-            self.detectedURL = URL(string: baseURL)
         }
     }
     
@@ -147,7 +136,7 @@ class ReadinessDetector: ReadinessDetectorProtocol {
         // No explicit ready-signal pattern.
         switch mode {
         case .fixed:
-            // Fixed mode with no pattern became ready in init; nothing to do here.
+            // Fixed URLs wait for an HTTP response instead of trusting output.
             return
         case .automatic:
             // Wait for a loopback URL to appear in the output. (OS port observation, via
@@ -161,9 +150,18 @@ class ReadinessDetector: ReadinessDetectorProtocol {
     /// Record that the server's process tree was observed listening on `port` (OS-level detection,
     /// automatic mode). First signal wins, matching output-based readiness.
     func noteListeningPort(_ port: Int) {
-        guard !isReady else { return }
+        guard mode == .automatic, !isReady else { return }
         os_log(.info, log: logger, "Observed listening port from OS: %d", port)
         markReady(constructURL(baseURL: baseURL, port: port))
+    }
+
+    var requiresHTTPReadiness: Bool {
+        mode == .fixed && (readySignalPattern?.isEmpty ?? true)
+    }
+
+    func noteHTTPResponse() {
+        guard requiresHTTPReadiness, !isReady else { return }
+        markReady(URL(string: baseURL))
     }
 
     /// Mark ready, defaulting to the base URL if no better URL was resolved.
@@ -179,6 +177,7 @@ class ReadinessDetector: ReadinessDetectorProtocol {
     /// Resolve the URL from output when an explicit ready signal has fired: prefer an explicit
     /// port-detection pattern, then a generic URL scan (only if no explicit pattern), else the base URL.
     private func resolveURL(from output: String) -> URL? {
+        if mode == .fixed { return URL(string: baseURL) }
         if let port = extractPort(from: output) {
             os_log(.info, log: logger, "Detected port: %d", port)
             return constructURL(baseURL: baseURL, port: port)
@@ -197,13 +196,6 @@ class ReadinessDetector: ReadinessDetectorProtocol {
         self.isReady = false
         self.detectedURL = nil
         self.scanBuffer = ""
-
-        // Mirror init: only fixed mode becomes ready immediately when no ready pattern is configured.
-        if mode == .fixed, readySignalPattern == nil || readySignalPattern?.isEmpty == true {
-            os_log(.info, log: logger, "No ready signal pattern configured (fixed mode), marking as ready immediately")
-            self.isReady = true
-            self.detectedURL = URL(string: baseURL)
-        }
     }
     
     // MARK: - Private Methods

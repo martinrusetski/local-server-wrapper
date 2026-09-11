@@ -1,73 +1,71 @@
-# Releasing Local Server Wrapper
+# Release maintenance
 
-This project ships as a downloadable `.dmg` and a Homebrew cask, and updates itself in place using [Sparkle](https://sparkle-project.org). Cutting a release is a single tagged push — GitHub Actions does the rest.
+Distribution follows TrueTone Manager: an ad-hoc signed DMG, Sparkle EdDSA signatures, and the shared [`martinrusetski/tap`](https://github.com/martinrusetski/homebrew-tap). The app supports macOS 13.5+, with universal Apple Silicon and Intel binaries.
 
-## One-time setup
+## Repository setup
 
-### 1. Add the Sparkle signing key as a GitHub secret
+The repository must be public before its GitHub download URLs and raw Sparkle feed work for other users. Publishing is a separate step from preparing the build.
 
-Every update is signed with a private EdDSA key so the app can verify a download really came from you before installing it. The matching public key is baked into the app (`Info.plist` → `SUPublicEDKey`) and lives in `Resources/sparkle_public_key.txt`. The **private** key must never be committed — it goes into a GitHub Actions secret.
+Required repository secrets:
 
-1. Open `https://github.com/martinrusetski/local-server-wrapper/settings/secrets/actions`.
-2. Click **New repository secret**.
-3. Name: `SPARKLE_PRIVATE_KEY`
-4. Value: the private key string (44 characters, ends with `=`). Ask Claude for it, or export it yourself with the Sparkle tools: `generate_keys --account local-server-wrapper -x key.txt`.
-5. Click **Add secret**.
+- `SPARKLE_PRIVATE_KEY`: the existing Keychain key under account `local-server-wrapper`. It must match `Resources/sparkle_public_key.txt`.
+- `HOMEBREW_TAP_DEPLOY_KEY`: an SSH key whose public half has write access as a deploy key on `martinrusetski/homebrew-tap`.
 
-Without this secret the release build still runs, but signing the update fails, so leaving it unset will break the release job.
+Use `scripts/setup-release-secrets.sh` after building once to configure these. It exports the existing Sparkle key into a private temporary directory, checks its public half, sends it to the repository's encrypted secret store, and removes the temporary files. It creates a dedicated tap deploy key only if that repository secret is absent. It does not reuse TrueTone Manager's private deploy key or change its setup.
 
-### 2. (Optional) The Homebrew tap
+GitHub Actions must be allowed to push `appcast.xml` to `main`. Branch rules must permit that bot update. The checkout's `Package.resolved` pins Sparkle; do not remove it or download signing tools from an unverified archive.
 
-Users can install with Homebrew straight from this repo:
+## Local verification
 
-```
-brew tap martinrusetski/lsw https://github.com/martinrusetski/local-server-wrapper
-brew install --cask local-server-wrapper
+```sh
+./scripts/test.sh
+./make-dmg.sh
 ```
 
-The cask lives at `Casks/local-server-wrapper.rb` and is updated automatically on every release.
+`VERSION` is the short app version. `make-dmg.sh` accepts optional version, numeric build number, and output path arguments. `LSW_BUILD_ROOT` selects an alternate build directory. The default output is under `dist`, which is ignored by Git. Local and CI packaging call the same script.
 
-## Cutting a release
+The verification checks both CPU architectures, bundle signatures, the embedded launcher and runtime, icons, licenses, minimum OS version, and Sparkle feed/public-key settings. The script also verifies the DMG container.
 
-1. Decide the new version number, e.g. `0.1.0`. Versions use [semver](https://semver.org): bump the last number for fixes, the middle for features.
-2. Create an annotated tag whose message becomes the release notes, and push it:
+Test update signing without changing the committed feed:
 
-   ```
+```sh
+cp appcast.xml /tmp/local-server-wrapper-appcast.xml
+APPCAST_PATH=/tmp/local-server-wrapper-appcast.xml ./update-appcast.sh \
+  0.1.0 1 dist/LocalServerWrapper-v0.1.0.dmg \
+  https://github.com/martinrusetski/local-server-wrapper/releases/download/v0.1.0/LocalServerWrapper-v0.1.0.dmg
+```
+
+The signature is verified independently with CryptoKit using the public key from the app, before an item is written. The feed writer rejects reused build numbers with different metadata and refuses to publish an older build. Use a build number greater than existing feed entries when testing subsequent versions.
+
+Before the first release, also test a fresh installation and a generated app outside the development checkout. A complete Sparkle replacement test needs an installed older build and an accessible newer signed update; signature validation alone does not prove that installation succeeds.
+
+## Publish a release
+
+1. Update `VERSION`, finish the changes, and commit them to `main`. Remove the first-release preparation notice from README when ready to publish.
+2. Run the **Release** workflow manually to build a downloadable inspection artifact without publishing a release or changing the feed/tap.
+3. After reviewing the artifact, create and push an annotated `v<version>` tag. Its complete message becomes the release notes. For example:
+
+   ```sh
    git tag -a v0.1.0 -m "First public release"
    git push origin v0.1.0
    ```
 
-   The tag **must** start with `v`. That is what triggers the release workflow.
+The tagged workflow validates the version and secrets, runs the unit tests, builds the DMG, signs and verifies it, publishes the GitHub download, and only then updates the appcast and shared tap. `github.run_number` supplies the monotonically increasing Sparkle build number. Release jobs are serialized.
 
-3. Watch the run at `https://github.com/martinrusetski/local-server-wrapper/actions`. When it finishes it will have:
-   - built both Xcode projects (the manager and the shared runtime),
-   - packaged and ad-hoc-signed `LocalServerWrapper-v0.1.0.dmg`,
-   - signed the update and added it to `appcast.xml` (so existing installs auto-update),
-   - updated `Casks/local-server-wrapper.rb`,
-   - committed those two files back to `main`,
-   - created the GitHub Release with the DMG attached.
+`Casks/local-server-wrapper.rb` is a reviewed template; its zero checksum is deliberately not installable. The workflow replaces it with the real DMG checksum in the shared tap after the archive is published. The public install command is:
 
-That's it. Existing users get the update automatically the next time the app checks; new users download the DMG or `brew install`.
+```sh
+brew install --cask martinrusetski/tap/local-server-wrapper
+```
 
-## Testing the build locally before tagging
+The cask uses [Homebrew's declarative `postflight_steps`](https://docs.brew.sh/Cask-Cookbook#stanza-flight_steps) and removes only the quarantine attribute. Homebrew accepts a major macOS version in `depends_on`, so the cask declares Ventura and states the 13.5 minimum in its caveat. The app and Sparkle feed enforce 13.5. The cask also declares the app's own updater.
 
-`./make-dmg.sh` runs the exact same sequence CI does and drops a `LocalServerWrapper.dmg` in the repo root, without touching `/Applications`, `~/Library/Frameworks`, or the appcast. Use it to confirm a build is good before you tag.
+If publication succeeds but a feed/tap push fails, rerun the job. It must reuse the already-published archive rather than replace bytes that installed Sparkle clients may already trust. Check the feed and tap commits as well as the release status.
 
-## Why the app isn't notarized (and what users see)
+## Updates to generated apps
 
-Releases are **ad-hoc signed**, not signed with an Apple Developer ID and notarized. That keeps releases free and CI simple, but macOS blocks an ad-hoc app on first launch. The DMG's `README.txt` and the Homebrew cask both handle this: the cask clears the quarantine flag automatically, and DMG users run `xattr -cr /Applications/LocalServerWrapper.app` once. After the first launch, Sparkle updates install silently — users never repeat the step.
+Sparkle updates the manager. Generated apps are self-contained and do not run their own updater. Regeneration incorporates the manager's current runtime; the cache includes the manager version/build so an unchanged configuration cannot reuse a runtime from an older manager release.
 
-If you later enroll in notarization, the switch is: sign with your Developer ID instead of `-`, add a notarization step to `release.yml`, and drop the `xattr` note.
+## Signing limits
 
-## How the pieces fit together
-
-| File | Role |
-| --- | --- |
-| `.github/workflows/release.yml` | The whole release pipeline, triggered by a `v*` tag. |
-| `inject-sparkle-keys.sh` | Writes `SUFeedURL` + `SUPublicEDKey` into the built app's `Info.plist`. |
-| `embed-runtime.sh` | Copies the self-contained `ServerAppBundle.app` plus a legacy compatibility copy of `ServerRuntime.framework` into the manager. |
-| `update-appcast.sh` | Signs a DMG and prepends a new entry to `appcast.xml`. |
-| `make-dmg.sh` | Local dry run of the whole build + package sequence. |
-| `appcast.xml` | The Sparkle update feed the installed app polls. |
-| `Casks/local-server-wrapper.rb` | The Homebrew cask. |
-| `Resources/sparkle_public_key.txt` | The public half of the update-signing key. |
+The app remains ad-hoc signed and unnotarized, matching TrueTone Manager. Sparkle's archive signature authenticates an update but does not provide Apple notarization. Keep the private key safe; do not replace the public key during an ordinary release.

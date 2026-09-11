@@ -87,6 +87,7 @@ class AppState: ObservableObject {
 
     /// Repeating timer that polls the OS for the server's listening port (automatic mode only).
     private var portPollTimer: Timer?
+    private var httpReadinessTask: Task<Void, Never>?
 
     /// How often automatic mode asks the OS which port the server is listening on, while waiting.
     private let portPollInterval: TimeInterval = 0.35
@@ -307,8 +308,7 @@ class AppState: ObservableObject {
                 usePseudoTerminal: !configuration.runWithoutTerminal
             )
             
-            // Start the timeout watchdog whenever we're actually waiting for a readiness signal.
-            // (In fixed mode with no ready pattern the detector is already ready, so we don't wait.)
+            // Wait for a readiness signal or an HTTP response at the configured URL.
             if !readinessDetector.isReady {
                 startTimeoutTimer()
             }
@@ -317,6 +317,8 @@ class AppState: ObservableObject {
             // output scanning — this is the primary, zero-config readiness/port signal.
             if configuration.urlDetectionMode == .automatic {
                 startPortPolling()
+            } else if readinessDetector.requiresHTTPReadiness {
+                startHTTPReadinessPolling()
             }
         } catch let error as ProcessError {
             // Handle specific process errors with user-friendly messages
@@ -340,6 +342,7 @@ class AppState: ObservableObject {
         // The old process is about to be torn down on purpose — don't let the watchdog flag it.
         // startServer() clears this flag again for the fresh process.
         expectingTermination = true
+        cancelPortPolling()
         readinessDetector.reset()
 
         guard processManager.isRunning else {
@@ -476,8 +479,36 @@ class AppState: ObservableObject {
         }
     }
 
+    private func startHTTPReadinessPolling() {
+        httpReadinessTask?.cancel()
+        guard let value = configuration.localhostURL, let url = URL(string: value) else { return }
+        httpReadinessTask = Task { [weak self] in
+            let session = URLSession(configuration: .ephemeral)
+            defer { session.invalidateAndCancel() }
+            while !Task.isCancelled {
+                guard let self, self.processManager.isRunning, !self.readinessDetector.isReady else { return }
+                var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 2)
+                request.httpMethod = "HEAD"
+                do {
+                    let (_, response) = try await session.data(for: request)
+                    guard !Task.isCancelled, self.processManager.isRunning else { return }
+                    // Login-required and unsupported-HEAD responses still prove the server is up.
+                    if let response = response as? HTTPURLResponse, response.statusCode < 500 || response.statusCode == 501 {
+                        self.readinessDetector.noteHTTPResponse()
+                        return
+                    }
+                } catch {
+                    if Task.isCancelled { return }
+                }
+                try? await Task.sleep(nanoseconds: 350_000_000)
+            }
+        }
+    }
+
     /// Stop OS port polling.
     private func cancelPortPolling() {
+        httpReadinessTask?.cancel()
+        httpReadinessTask = nil
         guard portPollTimer != nil else { return }
         os_log(.debug, log: logger, "Cancelling OS port polling")
         portPollTimer?.invalidate()

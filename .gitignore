@@ -69,3 +69,6 @@ fastlane/test_output
 *.profraw
 sparkle.tar.xz
 sparkle-tools/
+
+# Local release verification outputs
+dist/

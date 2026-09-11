@@ -62,7 +62,7 @@ enum PersistenceError: Error, LocalizedError, Equatable {
     var recoverySuggestion: String? {
         switch self {
         case .readFailed, .decodingFailed, .corruptedData:
-            return "Try restoring from a backup or creating a new configuration"
+            return "Restore the saved library from a backup, then reopen the manager"
         case .writeFailed, .encodingFailed:
             return "Check your disk space and file permissions"
         case .backupFailed:

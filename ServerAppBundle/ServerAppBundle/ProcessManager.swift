@@ -90,6 +90,7 @@ class ProcessManager: ProcessManagerProtocol {
     /// ANSI terminal emulator that turns the raw byte stream into colored, control-code-aware
     /// output. Bounds its own retained buffer by line count (TASK-3). Main-actor only.
     private let terminal = ANSITerminal()
+    private var outputRenderWorkItem: DispatchWorkItem?
 
     private var process: Process?
     private var outputPipe: Pipe?
@@ -119,6 +120,7 @@ class ProcessManager: ProcessManagerProtocol {
     // Note: deinit cannot be marked with @MainActor, so cleanup is done synchronously
     // This is safe because deinit is called when the object is being deallocated
     deinit {
+        outputRenderWorkItem?.cancel()
         // Remove termination observer
         if let observer = terminationObserver {
             NotificationCenter.default.removeObserver(observer)
@@ -416,15 +418,20 @@ class ProcessManager: ProcessManagerProtocol {
     // MARK: - Private Methods
     
     private func appendOutput(_ text: String) {
-        // Interpret ANSI escapes / control codes and update both the plain and colored renders.
-        // The emulator bounds its own buffer by line count, so the retained output stays bounded.
         terminal.feed(text)
+        // Readiness stays immediate; rebuilding the entire displayed buffer is coalesced.
+        outputChunks.send(ANSITerminal.strip(text))
+        guard outputRenderWorkItem == nil else { return }
+        let work = DispatchWorkItem { [weak self] in self?.renderOutput() }
+        outputRenderWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 30.0, execute: work)
+    }
+
+    private func renderOutput() {
+        outputRenderWorkItem?.cancel()
+        outputRenderWorkItem = nil
         output = terminal.plainText
         attributedOutput = terminal.attributedString()
-
-        // Feed only the new chunk to readiness detection (incremental scan, not full re-scan),
-        // with ANSI codes stripped so they can't break ready-signal / port regexes.
-        outputChunks.send(ANSITerminal.strip(text))
     }
     
     private func handleProcessTermination(_ process: Process) {
@@ -446,7 +453,8 @@ class ProcessManager: ProcessManagerProtocol {
             os_log(.error, log: logger, "Process exited with non-zero code: %d", code)
         }
         
-        // Clean up resources
+        // Publish final output before releasing the process resources.
+        renderOutput()
         cleanup()
     }
     

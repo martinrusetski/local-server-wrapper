@@ -311,7 +311,7 @@ struct ConfigurationEditorView: View {
     /// The optional URL text field. Empty ⇒ automatic detection; non-empty ⇒ loaded as written.
     private var fixedURLField: some View {
         VStack(alignment: .leading, spacing: 4) {
-            TextField("Server URL", text: $localhostURL, prompt: Text("optional · e.g. http://localhost:3000"))
+            TextField("Server URL", text: $localhostURL, prompt: Text("optional · e.g. http://localhost:3000").foregroundColor(Color(nsColor: .placeholderTextColor)))
                 .textFieldStyle(.roundedBorder)
                 .onChange(of: localhostURL) { _ in
                     validateURL()

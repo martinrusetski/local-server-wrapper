@@ -17,7 +17,7 @@ final class TerminalViewTests: XCTestCase {
     // real process and verify the view constructs against it. (Deep view-rendering assertions would
     // need a tool like ViewInspector, which the project doesn't depend on.)
 
-    private func runToCompletion(_ pm: ProcessManager, command: String, arguments: [String]) throws {
+    private func runToCompletion(_ pm: ProcessManager, command: String, arguments: [String]) async throws {
         try pm.start(command: command, arguments: arguments)
         let expectation = XCTestExpectation(description: "Process completes")
         Task {
@@ -26,7 +26,7 @@ final class TerminalViewTests: XCTestCase {
             }
             expectation.fulfill()
         }
-        wait(for: [expectation], timeout: 5.0)
+        await fulfillment(of: [expectation], timeout: 5.0)
     }
 
     func testTerminalViewConstructsWithFreshManager() {
@@ -37,9 +37,9 @@ final class TerminalViewTests: XCTestCase {
         XCTAssertNil(processManager.exitCode, "Fresh manager should have no exit code")
     }
 
-    func testTerminalViewReflectsSuccessfulOutput() throws {
+    func testTerminalViewReflectsSuccessfulOutput() async throws {
         let processManager = ProcessManager()
-        try runToCompletion(processManager, command: "/bin/echo", arguments: ["Test output"])
+        try await runToCompletion(processManager, command: "/bin/echo", arguments: ["Test output"])
 
         let terminalView = TerminalView(processManager: processManager)
         XCTAssertNotNil(terminalView)
@@ -47,19 +47,19 @@ final class TerminalViewTests: XCTestCase {
         XCTAssertEqual(processManager.exitCode, 0)
     }
 
-    func testTerminalViewReflectsErrorExitCode() throws {
+    func testTerminalViewReflectsErrorExitCode() async throws {
         let processManager = ProcessManager()
-        try runToCompletion(processManager, command: "/bin/sh", arguments: ["-c", "exit 1"])
+        try await runToCompletion(processManager, command: "/bin/sh", arguments: ["-c", "exit 1"])
 
         let terminalView = TerminalView(processManager: processManager)
         XCTAssertNotNil(terminalView)
         XCTAssertEqual(processManager.exitCode, 1)
     }
 
-    func testTerminalViewBuffersLargeOutputWithoutGrowingUnbounded() throws {
+    func testTerminalViewBuffersLargeOutputWithoutGrowingUnbounded() async throws {
         let processManager = ProcessManager()
         // Emit far more than the retained-buffer cap to confirm trimming keeps it bounded (TASK-3).
-        try runToCompletion(processManager, command: "/bin/sh", arguments: ["-c", "yes 'Line of output' | head -n 50000"])
+        try await runToCompletion(processManager, command: "/bin/sh", arguments: ["-c", "yes 'Line of output' | head -n 50000"])
 
         let terminalView = TerminalView(processManager: processManager)
         XCTAssertNotNil(terminalView)

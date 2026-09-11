@@ -11,6 +11,78 @@ import Foundation
 
 struct LocalServerWrapperTests {
 
+    @Test func savingBacksUpPreviousLibrary() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = PersistenceManager(directory: directory)
+        let first = ServerConfiguration(name: "First", command: "true")
+        try store.save([first])
+        let original = try Data(contentsOf: directory.appendingPathComponent("configurations.json"))
+        try store.save([])
+        let backups = try FileManager.default.contentsOfDirectory(at: directory.appendingPathComponent("Backups"), includingPropertiesForKeys: nil)
+        #expect(backups.count == 1)
+        #expect(try Data(contentsOf: #require(backups.first)) == original)
+        #expect(try store.load().isEmpty)
+    }
+
+    @Test func backupFailurePreservesCurrentLibrary() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = PersistenceManager(directory: directory)
+        try store.save([ServerConfiguration(name: "First", command: "true")])
+        let file = directory.appendingPathComponent("configurations.json")
+        let original = try Data(contentsOf: file)
+        let backups = directory.appendingPathComponent("Backups")
+        try FileManager.default.removeItem(at: backups)
+        try Data().write(to: backups)
+        #expect(throws: PersistenceError.self) { try store.save([]) }
+        #expect(try Data(contentsOf: file) == original)
+    }
+
+    @Test @MainActor func failedLibraryLoadBlocksAllWritesAndShowsError() throws {
+        let store = FailedLoadStore()
+        let manager = ConfigurationManager(persistenceManager: store)
+        let config = ServerConfiguration(name: "New App", command: "true")
+        #expect(manager.loadError != nil)
+        #expect(throws: PersistenceError.self) { try manager.createConfiguration(config) }
+        #expect(throws: PersistenceError.self) { try manager.updateConfiguration(config) }
+        #expect(throws: PersistenceError.self) { try manager.deleteConfiguration(id: config.id) }
+        #expect(store.saveCount == 0)
+        let viewModel = ConfigurationListViewModel(configurationManager: manager)
+        #expect(viewModel.showingError)
+        #expect(viewModel.errorMessage == manager.loadError)
+    }
+
+    @Test @MainActor func collidingBundleNamesStayIndependent() async throws {
+        let suffix = UUID().uuidString
+        let first = ServerConfiguration(name: "Tool/\(suffix)", command: "true")
+        let second = ServerConfiguration(name: "Tool_\(suffix)", command: "false")
+        let manager = TestConfigurationManager(configurations: [first, second])
+        let generator = TestAppBundleGenerator()
+        let viewModel = ConfigurationListViewModel(configurationManager: manager, bundleGenerator: generator)
+        defer {
+            for config in [first, second] {
+                try? FileManager.default.removeItem(at: ConfigurationListViewModel.bundlesDirectory.appendingPathComponent(config.id.uuidString))
+                for prefix in ["generated_bundle_path_", "generated_config_hash_"] {
+                    UserDefaults.standard.removeObject(forKey: prefix + config.id.uuidString)
+                }
+            }
+        }
+        let firstURL = try await viewModel.ensureCanonicalBundle(for: first)
+        let secondURL = try await viewModel.ensureCanonicalBundle(for: second)
+        #expect(firstURL != secondURL)
+        #expect(firstURL.lastPathComponent == secondURL.lastPathComponent)
+        let cachedURL = try await viewModel.ensureCanonicalBundle(for: first)
+        #expect(cachedURL.path == firstURL.path)
+        #expect(generator.generationCount == 2)
+        viewModel.deleteConfiguration(first)
+        #expect(FileManager.default.fileExists(atPath: secondURL.path))
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let data = try Data(contentsOf: secondURL.appendingPathComponent("Contents/Resources/configuration.json"))
+        #expect(try decoder.decode(ServerConfiguration.self, from: data).id == second.id)
+    }
+
     @Test @MainActor func missingCustomIconUsesBundledPlaceholder() throws {
         let fileManager = FileManager.default
         let bundleURL = fileManager.temporaryDirectory
@@ -176,6 +248,7 @@ struct LocalServerWrapperTests {
 }
 
 private final class TestConfigurationManager: ConfigurationManagerProtocol {
+    var loadError: String? { nil }
     var configurations: [ServerConfiguration]
 
     init(configurations: [ServerConfiguration]) {
@@ -214,7 +287,8 @@ private final class TestAppBundleGenerator: AppBundleGeneratorProtocol {
     ) async throws -> URL {
         generationCount += 1
         let fileManager = FileManager.default
-        let bundleURL = outputPath.appendingPathComponent("\(configuration.name).app")
+        let name = configuration.name.components(separatedBy: CharacterSet(charactersIn: ":/\\?%*|\"<>" )).joined(separator: "_")
+        let bundleURL = outputPath.appendingPathComponent("\(name).app")
         let resourcesURL = bundleURL.appendingPathComponent("Contents/Resources")
 
         try? fileManager.removeItem(at: bundleURL)
@@ -228,4 +302,12 @@ private final class TestAppBundleGenerator: AppBundleGeneratorProtocol {
         progressHandler?(1, "Bundle generation complete")
         return bundleURL
     }
+}
+
+private final class FailedLoadStore: PersistenceManagerProtocol {
+    var saveCount = 0
+    func load() throws -> [ServerConfiguration] { throw PersistenceError.decodingFailed("Test fixture") }
+    func save(_ configurations: [ServerConfiguration]) throws { saveCount += 1 }
+    func backup() throws {}
+    func restore(from backupURL: URL) throws {}
 }
