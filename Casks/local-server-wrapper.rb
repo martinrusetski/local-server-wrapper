@@ -21,6 +21,4 @@ cask "local-server-wrapper" do
     "~/Library/Application Support/LocalServerWrapper",
     "~/Library/Frameworks/ServerRuntime.framework",
   ]
-
-  caveats "Requires macOS 13.5 or later."
 end
