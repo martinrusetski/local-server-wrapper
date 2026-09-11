@@ -25,6 +25,14 @@ struct LocalServerWrapperApp: App {
         .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(replacing: .newItem) { }
+            CommandGroup(replacing: .appInfo) {
+                Button("About Local Server Wrapper") {
+                    appDelegate.showAboutWindow()
+                }
+            }
+            CommandGroup(replacing: .help) {
+                Link("Local Server Wrapper Help", destination: URL(string: "https://github.com/martinrusetski/local-server-wrapper#readme")!)
+            }
             // Adds "Check for Updates…" to the app menu, just below "About".
             CommandGroup(after: .appInfo) {
                 CheckForUpdatesCommand(updater: updaterController)
@@ -36,7 +44,15 @@ struct LocalServerWrapperApp: App {
 class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     /// userInfo key carrying the generated bundle's path on success notifications
     static let bundlePathUserInfoKey = "bundlePath"
+    private var aboutWindowController: AboutWindowController?
     private let compactWindowMigrationKey = "didApplyCompactMainWindowSizeV1"
+
+    func showAboutWindow() {
+        if aboutWindowController == nil {
+            aboutWindowController = AboutWindowController()
+        }
+        aboutWindowController?.show()
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         UNUserNotificationCenter.current().delegate = self
