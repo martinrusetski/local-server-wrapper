@@ -6,6 +6,14 @@
     <description>Software updates for Local Server Wrapper</description>
     <language>en</language>
     <item>
+      <title>0.1.1</title>
+      <pubDate>Fri, 11 Sep 2026 10:14:34 GMT</pubDate>
+      <sparkle:version>2</sparkle:version>
+      <sparkle:shortVersionString>0.1.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.5</sparkle:minimumSystemVersion>
+      <enclosure url="https://github.com/martinrusetski/local-server-wrapper/releases/download/v0.1.1/LocalServerWrapper-v0.1.1.dmg" sparkle:edSignature="flIrW9H+Nzur2UAyniM8dAFC+2LKj3ncp6TxIB895TT5oRVOaRhZiMi8W8MTxBwNRcQgxkR7EZh6uPOxkEwJCg==" length="6374950" type="application/octet-stream" />
+    </item>
+    <item>
       <title>0.1.0</title>
       <pubDate>Fri, 11 Sep 2026 10:01:05 GMT</pubDate>
       <sparkle:version>1</sparkle:version>
